@@ -1,104 +1,104 @@
 # Connect Codex to this Home Assistant instance
 
-This project uses a Home Assistant MCP server over a protected webhook URL.
-The original Home Assistant setup can involve browser-based pairing, but the
-resulting webhook URL is the runtime authorization mechanism for this instance.
-Keep the instance URL, webhook ID, access token, and refresh token out of Git,
-chat transcripts, and build logs.
+Use one canonical MCP server name on every Codex installation:
+`home-assistant`. The Codex user configuration is global to that installation,
+so the connection is available to every new local Codex task, in every project.
 
-## Configure the local Codex client
+This Home Assistant endpoint currently requires OAuth. A webhook URL is still a
+secret and must not be committed, pasted into issues, or put in build logs, but
+the URL alone is not sufficient to use this server. Codex must complete its own
+OAuth login and store the resulting credentials in that installation's encrypted
+credential store.
 
-Create the MCP connection on the computer that runs Codex. Replace the
-placeholders locally; do not paste the real values into this repository.
+## Set up each Codex installation
 
-```toml
-# %USERPROFILE%/.codex/config.toml
-[mcp_servers.ha-fresh]
-url = "https://<home-assistant-host>/api/webhook/<mcp-webhook-id>"
-enabled = true
-```
+Each computer, operating-system account, or isolated Codex environment needs
+its own registration and OAuth login. Do **not** copy `mcp_oauth.age`, access
+tokens, refresh tokens, or another machine's `.codex` directory. Codex encrypts
+those credentials locally; copying them is both unreliable and unsafe.
 
-The webhook URL is a capability URL. Treat it like a credential even though it
-does not look like a password. Do not add a bearer token, custom headers, or
-an OAuth section unless Home Assistant explicitly asks for one: this instance
-successfully initializes from the protected webhook URL alone.
+1. Obtain the Home Assistant MCP URL through the approved secret-sharing path.
+   Treat the full URL as a credential.
+2. In a terminal with the standalone Codex CLI, register the endpoint under the
+   canonical name and complete the browser login:
 
-If starting from a supported standalone Codex CLI, add the server with a fresh
-label:
+   ```text
+   codex mcp add home-assistant --url "https://<home-assistant-host>/api/webhook/<mcp-webhook-id>"
+   codex mcp login home-assistant --oauth-client-registration auto
+   ```
+
+   The login command opens a Home Assistant sign-in/consent flow when needed.
+   Complete it with an approved Home Assistant account; never add a bearer
+   token, client secret, or custom authorization header unless the Home
+   Assistant administrator has deliberately selected a different authentication
+   mode.
+
+3. If `codex` is not directly runnable from the terminal on a desktop-app
+   installation, use Codex Desktop's **Add Custom MCP** flow with the same
+   `home-assistant` name and URL, then complete the OAuth sign-in that Codex
+   offers. Do not run the executable inside the Microsoft Store `WindowsApps`
+   package folder.
+4. Start a **new local Codex task**. A task that was already running does not
+   gain MCP tools after a connection is added or reauthenticated.
+
+The command below confirms the global registration. The last column should say
+`enabled`; it will also say `OAuth` when the server requires a login.
 
 ```text
-codex mcp add ha-fresh --url "https://<home-assistant-host>/api/webhook/<mcp-webhook-id>"
+codex mcp list
 ```
 
-Begin a **new local Codex task** after saving the server. A running task does
-not receive tools from a server that becomes ready mid-task.
+## Verify without changing Home Assistant
 
-## Verify the connection
+Registration is not proof that the server is usable. Run the repository health
+check from a new terminal before relying on the connection for deployment work:
 
-Configuration alone is not proof of a usable connection. In the new task,
-verify that Home Assistant tools are present (normally named
-`mcp__ha_fresh__...`) and make a harmless read-only call before using ADB or
-calling any Home Assistant action.
+```powershell
+.\tools\verify-codex-home-assistant-mcp.ps1
+```
 
-For the Shield work, use the Home Assistant `androidtv` actions only after
-that read succeeds. See [Home Assistant ADB deployment](home-assistant-adb-deployment.md)
+The script starts an isolated, read-only Codex session and permits exactly one
+clearly non-mutating Home Assistant MCP call. It prints only the verification
+result, not Home Assistant state or credentials. Pass `-CodexPath` if Codex is
+installed somewhere the script cannot discover:
+
+```powershell
+.\tools\verify-codex-home-assistant-mcp.ps1 -CodexPath "C:\path\to\codex.exe"
+```
+
+For the Shield work, call Home Assistant `androidtv` actions only after this
+read check passes. See [Home Assistant ADB deployment](home-assistant-adb-deployment.md)
 for the signed-APK upload, install, launch, and `gfxinfo` sequence.
 
-## Stale OAuth configuration recovery
+## Recover from an authorization failure
 
-The observed failure mode for this instance is a stale OAuth session:
+An HTTP `401` or missing Home Assistant tools means Codex has no valid OAuth
+session for that installation. Repair it in this order:
 
 ```text
-OAuth token refresh failed: server returned empty error response
+codex mcp login home-assistant --oauth-client-registration auto
+codex mcp list
 ```
 
-When this happens, Codex intentionally omits the old `ha` server from the task
-tool catalog because its saved OAuth session is no longer ready. Do not delete
-or edit `mcp_oauth.age` manually: it is encrypted credential storage and may
-contain other server sessions.
+Then begin a new local Codex task and run the read-only check again. Do not
+create `ha-fresh`, `ha-fresh-2`, or similarly numbered replacement servers as
+the normal recovery path: their separate names create separate credential
+records and make future diagnosis harder.
 
-### When `Authenticate` is not shown
-
-Some Codex Desktop versions retain the failed `ha` session as neither ready
-nor logged out. Its settings page then shows only the transport fields—URL,
-optional bearer-token variable, and headers—and no **Authenticate** button.
-That is expected for this failure state. Leave those fields unchanged and do
-**not** uninstall the old connection first.
-
-Instead, return to the MCP server list and create a temporary fresh server:
-
-1. Select **Back**, then **Add → Custom MCP**.
-2. Name it `ha-fresh` (the new name is important: OAuth storage is associated
-   with the server name).
-3. Enter the same protected webhook URL. Leave the optional bearer-token and
-   header fields blank unless this instance was explicitly configured to use
-   them.
-4. Save it. No **Authenticate** button is expected for this protected-webhook
-   configuration.
-5. Start a new local task and verify `mcp__ha_fresh__...` tools are available.
-
-Only after `ha-fresh` is working should the old `ha` connection be removed.
-Keeping it until verification preserves the original protected endpoint and
-configuration as a fallback.
-
-On Windows, do not run the `codex.exe` inside the Microsoft Store package
-directory (`Program Files\\WindowsApps`). It is owned by the package and a
-normal terminal will report **Access is denied**. Use the Codex Desktop
-connection UI or an independently installed standalone Codex CLI for the
-login command.
-
-After re-authorizing, restart the local Codex client if it does not load the
-server automatically, start a new local task, and repeat the verification
-above. The repair is complete only when `ha` tools are actually present and a
-read-only Home Assistant call succeeds.
+If login cannot complete, first verify the Home Assistant server itself is
+running and that the external HTTPS URL is reachable. The server's authentication
+mode may have been changed by its administrator. In that case, update the
+server configuration or obtain the approved connection details, then retry the
+same canonical `home-assistant` entry. Do not edit encrypted OAuth storage by
+hand.
 
 ## Safe handoff details
 
-When another model or developer needs to use this connection, share only:
+When another developer needs this connection, share only:
 
-- The server label: `ha`.
-- The fact that it uses a Home Assistant MCP webhook and browser OAuth.
+- The server label: `home-assistant`.
+- The expected authentication type: Home Assistant OAuth.
 - The entity IDs and intended Home Assistant actions required for the task.
 
-Share the webhook URL and OAuth information only through an approved secret
-manager or the local Codex configuration flow.
+Share the URL and all OAuth information only through an approved secret manager
+or the local Codex configuration flow.

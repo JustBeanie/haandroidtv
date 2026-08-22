@@ -78,8 +78,9 @@ starts, and captures `gfxinfo` once a Shield is connected through ADB.
 When the Shield is already connected to Home Assistant's Android Debug Bridge
 integration, use the [Home Assistant ADB deployment guide](docs/home-assistant-adb-deployment.md)
 to upload, install, launch, and collect the same diagnostics remotely.
-To make the local Codex client available to the Shield validation task, follow
-the credential-safe [Codex Home Assistant MCP setup](docs/codex-home-assistant-mcp.md).
+To make the global Codex `home-assistant` connector available to every new
+Shield validation task, follow the credential-safe [Codex Home Assistant MCP
+setup](docs/codex-home-assistant-mcp.md) and run its read-only verification.
 
 ## Limitations
 
