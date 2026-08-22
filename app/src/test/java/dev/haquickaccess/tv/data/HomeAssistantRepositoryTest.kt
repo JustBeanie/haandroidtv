@@ -1,6 +1,7 @@
 package dev.haquickaccess.tv.data
 
 import dev.haquickaccess.tv.domain.ServiceCall
+import dev.haquickaccess.tv.domain.model.ControlAction
 import dev.haquickaccess.tv.domain.model.HaEntity
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -9,6 +10,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -69,6 +72,24 @@ class HomeAssistantRepositoryTest {
         assertEquals(1, gateway.disconnectCalls)
     }
 
+    @Test
+    fun `an unacknowledged service call times out and resets the session`() = runTest {
+        val gateway = FakeGateway(results = ArrayDeque()).apply {
+            pendingCall = CompletableDeferred()
+        }
+        val repository = HomeAssistantRepository(gateway, StandardTestDispatcher(testScheduler))
+        val action = ControlAction.Toggle(HaEntity("switch.coffee", "off"))
+
+        val result = async { repository.execute(action) }
+        runCurrent()
+        advanceTimeBy(SERVICE_CALL_TIMEOUT_MS)
+        runCurrent()
+
+        assertTrue(result.await().isFailure)
+        assertEquals("Home Assistant command timed out", result.await().exceptionOrNull()?.message)
+        assertEquals(1, gateway.disconnectCalls)
+    }
+
     private class FakeGateway(
         private val results: ArrayDeque<Result<Unit>>,
         private val failureRetryable: Boolean = true,
@@ -79,6 +100,7 @@ class HomeAssistantRepositoryTest {
         override val status: StateFlow<ConnectionStatus> = mutableStatus.asStateFlow()
         var connectCalls = 0
         var disconnectCalls = 0
+        var pendingCall: CompletableDeferred<Result<Unit>>? = null
 
         override suspend fun connect(baseUrl: String, token: String): Result<Unit> {
             connectCalls += 1
@@ -91,7 +113,7 @@ class HomeAssistantRepositoryTest {
             return result
         }
 
-        override suspend fun call(service: ServiceCall): Result<Unit> = Result.success(Unit)
+        override suspend fun call(service: ServiceCall): Result<Unit> = pendingCall?.await() ?: Result.success(Unit)
 
         override fun disconnect() {
             disconnectCalls += 1

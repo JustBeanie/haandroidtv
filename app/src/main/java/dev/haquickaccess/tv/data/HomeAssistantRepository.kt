@@ -13,6 +13,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+
+internal const val SERVICE_CALL_TIMEOUT_MS = 10_000L
 
 interface HomeAssistantSession {
     val entities: StateFlow<Map<String, HaEntity>>
@@ -61,5 +64,13 @@ class HomeAssistantRepository @Inject constructor(
         gateway.disconnect()
     }
 
-    override suspend fun execute(action: ControlAction): Result<Unit> = gateway.call(HomeAssistantCommandFactory.create(action))
+    override suspend fun execute(action: ControlAction): Result<Unit> {
+        val result = withTimeoutOrNull(SERVICE_CALL_TIMEOUT_MS) {
+            gateway.call(HomeAssistantCommandFactory.create(action))
+        }
+        if (result != null) return result
+
+        gateway.disconnect()
+        return Result.failure(IllegalStateException("Home Assistant command timed out"))
+    }
 }
