@@ -253,7 +253,15 @@ class DashboardViewModel @Inject constructor(
     }
 
     fun removeTile(entityId: String) = viewModelScope.launch {
-        settingsRepository.saveTiles(latestSettings.tiles.filterNot { it.entityId == entityId }.mapIndexed { index, tile -> tile.copy(position = index) })
+        val tiles = latestSettings.tiles
+            .filterNot { it.entityId == entityId }
+            .mapIndexed { index, tile -> tile.copy(position = index) }
+        val shortcuts = latestSettings.homeShortcuts.filterNot { it.entityId == entityId }
+        settingsRepository.saveTiles(tiles)
+        if (shortcuts.size != latestSettings.homeShortcuts.size) {
+            settingsRepository.saveShortcuts(shortcuts)
+            publishShortcutsIfEnabled(shortcuts)
+        }
     }
 
     fun moveTile(entityId: String, direction: Int) = viewModelScope.launch {
@@ -389,6 +397,7 @@ class DashboardViewModel @Inject constructor(
 
     fun removeShortcut(entityId: String) = viewModelScope.launch {
         val shortcuts = latestSettings.homeShortcuts.filterNot { it.entityId == entityId }
+        if (shortcuts.size == latestSettings.homeShortcuts.size) return@launch
         settingsRepository.saveShortcuts(shortcuts)
         publishShortcutsIfEnabled(shortcuts)
     }

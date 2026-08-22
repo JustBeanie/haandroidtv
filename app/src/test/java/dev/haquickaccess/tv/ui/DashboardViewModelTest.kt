@@ -228,6 +228,29 @@ class DashboardViewModelTest {
     }
 
     @Test
+    fun `removing a dashboard tile also removes its Home shortcut`() = runTest {
+        val lamp = entity("light.den", "off")
+        val settings = FakeSettingsStore(
+            AppSettings(
+                tiles = listOf(TileConfiguration(lamp.entityId, 0)),
+                homeShortcuts = listOf(dev.haquickaccess.tv.domain.model.ShortcutConfiguration(lamp.entityId, ShortcutBehavior.TOGGLE)),
+                homeChannelEnabled = true,
+                channelId = 9L,
+            ),
+        )
+        val channel = FakeChannelGateway(channelId = 9L)
+        val viewModel = viewModel(settings, FakeSession(mapOf(lamp.entityId to lamp)), channel)
+        observe(viewModel)
+
+        viewModel.removeTile(lamp.entityId)
+        runCurrent()
+
+        assertTrue(settings.value.tiles.isEmpty())
+        assertTrue(settings.value.homeShortcuts.isEmpty())
+        assertEquals(1, channel.creates)
+    }
+
+    @Test
     fun `foreground session validates setup and requests an opt in channel`() = runTest {
         val lamp = entity("light.den", "on")
         val settings = FakeSettingsStore(
