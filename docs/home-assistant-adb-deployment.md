@@ -41,6 +41,29 @@ the `ha-quick-access` directory if it does not exist. The Home Assistant path
 used in the actions below is then `/config/www/ha-quick-access/<apk-name>`.
 Keep APKs and signing material out of Git.
 
+### Home Assistant Apps fallback
+
+If the Samba share is unavailable, use the already-installed **Advanced SSH &
+Web Terminal** Home Assistant App rather than exposing the development machine
+over HTTP. Use an existing App account with the minimum access needed to stage
+the file. Some App configurations disable SFTP and make `/config/www`
+root-owned; in that case, upload to the App account's home directory with
+legacy SCP, then promote the verified file with its existing `sudo` access:
+
+```text
+scp -O <local-apk> <app-account>@<home-assistant-host>:/home/<app-account>/app-debug.apk
+ssh <app-account>@<home-assistant-host> \
+  'sudo install -d -m 0755 /config/www/ha-quick-access && \
+   sudo install -m 0644 /home/<app-account>/app-debug.apk /config/www/ha-quick-access/app-debug.apk && \
+   sha256sum /config/www/ha-quick-access/app-debug.apk'
+```
+
+Compare that hash with the local APK before invoking `androidtv.upload`, then
+remove only the temporary `/home/<app-account>/app-debug.apk` copy. Keep host
+key checking enabled. If a client and App server negotiate a broken MAC,
+configure a mutually supported modern cipher/MAC pair or update the endpoint;
+do not disable encryption or host-key verification.
+
 Finally, confirm the Shield's **Android Debug Bridge** integration is available,
 note its media-player entity ID (for example `media_player.living_room_shield`),
 and confirm that the Shield has already accepted Home Assistant's ADB
@@ -67,13 +90,16 @@ data:
 ```
 
 ```yaml
-# 2. Move the APK to the ADB-readable install location.
+# 2. Move the APK to the ADB-readable install location and report the status
+#    through the media-player entity's adb_response attribute.
 #    pm install cannot read from /storage/emulated/0 on current Shield firmware.
 action: androidtv.adb_command
 target:
   entity_id: media_player.living_room_shield
 data:
-  command: cp /storage/emulated/0/Download/ha-quick-access-debug.apk /data/local/tmp/ha-quick-access-debug.apk
+  command: >-
+    sh -c 'cp /storage/emulated/0/Download/ha-quick-access-debug.apk
+    /data/local/tmp/ha-quick-access-debug.apk; echo status=$? >&2'
 ```
 
 ```yaml
@@ -82,22 +108,30 @@ action: androidtv.adb_command
 target:
   entity_id: media_player.living_room_shield
 data:
-  command: pm install -r /data/local/tmp/ha-quick-access-debug.apk
+  command: >-
+    sh -c 'pm install -r /data/local/tmp/ha-quick-access-debug.apk >&2;
+    echo status=$? >&2'
 ```
 
 ```yaml
-# 4. Start the app and return Android's launch timing/result.
+# 4. Start the app and return Android's launch timing/result in adb_response.
 action: androidtv.adb_command
 target:
   entity_id: media_player.living_room_shield
 data:
-  command: am start -W -n dev.haquickaccess.tv.debug/dev.haquickaccess.tv.MainActivity
+  command: >-
+    sh -c 'am start -W -n
+    dev.haquickaccess.tv.debug/dev.haquickaccess.tv.MainActivity >&2;
+    echo status=$? >&2'
 ```
 
-The install action should return `Success`. If it does not, inspect the
-`adb_response` attribute on the media-player entity before retrying. Do not
-downgrade the app or clear its data unless that is deliberate: either operation
-would discard the encrypted connection token and tile configuration.
+The install action should report `Success` and `status=0` in the
+media-player entity's `adb_response` attribute. The service result itself only
+confirms that Home Assistant sent the command; successful command stdout may
+not be surfaced there. Redirect diagnostics to stderr as above, then read the
+entity attributes before retrying. Do not downgrade the app or clear its data
+unless that is deliberate: either operation would discard the encrypted
+connection token and tile configuration.
 
 ## Initial Home Assistant connection
 
@@ -128,23 +162,28 @@ Run these through `androidtv.adb_command` against the same entity while
 performing the physical-device checklist:
 
 ```yaml
-# Prove the expected debug package is installed and show its code path.
-command: pm path dev.haquickaccess.tv.debug
+# Prove the expected debug package is installed, show its code path, and
+# surface the result in the media player's adb_response attribute.
+command: >-
+  sh -c 'pm path dev.haquickaccess.tv.debug >&2; echo status=$? >&2'
 ```
 
 ```yaml
 # Inspect package version, requested permissions, and launch component.
-command: dumpsys package dev.haquickaccess.tv.debug
+command: >-
+  sh -c 'dumpsys package dev.haquickaccess.tv.debug >&2; echo status=$? >&2'
 ```
 
 ```yaml
 # Collect the rendering diagnostics called for by the Shield checklist.
-command: dumpsys gfxinfo dev.haquickaccess.tv.debug
+command: >-
+  sh -c 'dumpsys gfxinfo dev.haquickaccess.tv.debug >&2; echo status=$? >&2'
 ```
 
-The integration exposes raw shell-command output as `adb_response`; record the
-package result, launch result, and `gfxinfo` result with the manual test
-evidence. Optionally remove both Shield copies after a successful install:
+The integration exposes captured shell-command diagnostics as
+`adb_response`; record the package result, launch result, and `gfxinfo` result
+with the manual test evidence. Optionally remove both Shield copies after a
+successful install:
 
 ```yaml
 action: androidtv.adb_command
