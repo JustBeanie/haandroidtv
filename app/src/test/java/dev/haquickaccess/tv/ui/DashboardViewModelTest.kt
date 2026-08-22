@@ -654,6 +654,22 @@ class DashboardViewModelTest {
     }
 
     @Test
+    fun `unexpected connection validation errors are shown without saving credentials`() = runTest {
+        val settings = FakeSettingsStore()
+        val session = FakeSession().apply { validationFailure = IllegalStateException("Socket failed") }
+        val viewModel = viewModel(settings, session)
+        observe(viewModel)
+
+        viewModel.updateSetupBaseUrl("https://ha.example")
+        viewModel.updateSetupToken("temporary-token")
+        viewModel.saveConnection()
+
+        assertEquals("Socket failed", viewModel.uiState.value.errorMessage)
+        assertFalse(viewModel.uiState.value.isSavingConnection)
+        assertEquals(AppSettings(), settings.value)
+    }
+
+    @Test
     fun `backgrounding clears transient setup and alarm codes`() = runTest {
         val alarm = entity("alarm_control_panel.home", "armed_away")
         val viewModel = viewModel()
@@ -741,10 +757,12 @@ class DashboardViewModelTest {
         var stops = 0
         var result: Result<Unit> = Result.success(Unit)
         var validationResult: Result<Unit> = Result.success(Unit)
+        var validationFailure: Exception? = null
         var pendingValidation: CompletableDeferred<Result<Unit>>? = null
         var pendingAction: CompletableDeferred<Result<Unit>>? = null
 
         override suspend fun validateConnection(baseUrl: String, token: String): Result<Unit> {
+            validationFailure?.let { throw it }
             validations += baseUrl to token
             return pendingValidation?.await() ?: validationResult
         }

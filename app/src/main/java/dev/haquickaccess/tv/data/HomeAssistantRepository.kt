@@ -8,6 +8,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -64,13 +65,20 @@ class HomeAssistantRepository @Inject constructor(
         gateway.disconnect()
     }
 
-    override suspend fun execute(action: ControlAction): Result<Unit> {
+    override suspend fun execute(action: ControlAction): Result<Unit> = try {
         val result = withTimeoutOrNull(SERVICE_CALL_TIMEOUT_MS) {
             gateway.call(HomeAssistantCommandFactory.create(action))
         }
-        if (result != null) return result
-
+        if (result != null) {
+            result
+        } else {
+            gateway.disconnect()
+            Result.failure(IllegalStateException("Home Assistant command timed out"))
+        }
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Exception) {
         gateway.disconnect()
-        return Result.failure(IllegalStateException("Home Assistant command timed out"))
+        Result.failure(exception)
     }
 }

@@ -90,6 +90,20 @@ class HomeAssistantRepositoryTest {
         assertEquals(1, gateway.disconnectCalls)
     }
 
+    @Test
+    fun `an unexpected service call error resets the session and returns a failure`() = runTest {
+        val gateway = FakeGateway(results = ArrayDeque()).apply {
+            callFailure = IllegalStateException("Socket failed")
+        }
+        val repository = HomeAssistantRepository(gateway, StandardTestDispatcher(testScheduler))
+
+        val result = repository.execute(ControlAction.Toggle(HaEntity("switch.coffee", "off")))
+
+        assertTrue(result.isFailure)
+        assertEquals("Socket failed", result.exceptionOrNull()?.message)
+        assertEquals(1, gateway.disconnectCalls)
+    }
+
     private class FakeGateway(
         private val results: ArrayDeque<Result<Unit>>,
         private val failureRetryable: Boolean = true,
@@ -101,6 +115,7 @@ class HomeAssistantRepositoryTest {
         var connectCalls = 0
         var disconnectCalls = 0
         var pendingCall: CompletableDeferred<Result<Unit>>? = null
+        var callFailure: Exception? = null
 
         override suspend fun connect(baseUrl: String, token: String): Result<Unit> {
             connectCalls += 1
@@ -113,7 +128,10 @@ class HomeAssistantRepositoryTest {
             return result
         }
 
-        override suspend fun call(service: ServiceCall): Result<Unit> = pendingCall?.await() ?: Result.success(Unit)
+        override suspend fun call(service: ServiceCall): Result<Unit> {
+            callFailure?.let { throw it }
+            return pendingCall?.await() ?: Result.success(Unit)
+        }
 
         override fun disconnect() {
             disconnectCalls += 1

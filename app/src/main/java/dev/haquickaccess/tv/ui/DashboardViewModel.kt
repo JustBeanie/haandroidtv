@@ -22,6 +22,7 @@ import dev.haquickaccess.tv.domain.model.climateTarget
 import dev.haquickaccess.tv.domain.model.levelPercent
 import dev.haquickaccess.tv.platform.HomeChannelGateway
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -212,7 +213,13 @@ class DashboardViewModel @Inject constructor(
             homeAssistantRepository.stop()
             savingConnection.value = true
             try {
-                val validation = homeAssistantRepository.validateConnection(validatedUrl, token)
+                val validation = try {
+                    homeAssistantRepository.validateConnection(validatedUrl, token)
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Exception) {
+                    Result.failure(exception)
+                }
                 if (validation.isFailure) {
                     error.value = validation.exceptionOrNull()?.message ?: "Could not connect to Home Assistant"
                     synchronizeForegroundSession(previousSettings, foreground.value)
