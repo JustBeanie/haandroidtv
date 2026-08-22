@@ -45,10 +45,18 @@ interface HomeAssistantGateway {
 }
 
 @Singleton
-class HomeAssistantWebSocket @Inject constructor(
-    private val client: OkHttpClient,
+class HomeAssistantWebSocket private constructor(
+    private val openWebSocket: (Request, WebSocketListener) -> WebSocket,
     private val json: Json,
 ) : HomeAssistantGateway {
+    @Inject
+    constructor(client: OkHttpClient, json: Json) : this(client::newWebSocket, json)
+
+    internal constructor(
+        json: Json,
+        openWebSocket: (Request, WebSocketListener) -> WebSocket,
+    ) : this(openWebSocket, json)
+
     private val _entities = MutableStateFlow<Map<String, HaEntity>>(emptyMap())
     override val entities: StateFlow<Map<String, HaEntity>> = _entities.asStateFlow()
 
@@ -68,7 +76,7 @@ class HomeAssistantWebSocket @Inject constructor(
         currentToken = token
         val result = CompletableDeferred<Result<Unit>>()
         authResult = result
-        socket = client.newWebSocket(
+        socket = openWebSocket(
             Request.Builder().url(HomeAssistantProtocol.webSocketUrl(baseUrl)).build(),
             Listener(),
         )
@@ -96,6 +104,7 @@ class HomeAssistantWebSocket @Inject constructor(
         socket = null
         currentToken = null
         initialStatesRequestId = null
+        _entities.value = emptyMap()
         authResult?.complete(Result.failure(IllegalStateException("Disconnected")))
         authResult = null
         pending.values.forEach { it.complete(Result.failure(IllegalStateException("Disconnected"))) }
@@ -175,9 +184,17 @@ class HomeAssistantWebSocket @Inject constructor(
                     sendInitialRequests()
                 }
                 "auth_invalid" -> {
-                    val failure = Result.failure<Unit>(SecurityException(message["message"]?.jsonPrimitive?.content ?: "Token rejected"))
+                    val exception = SecurityException(message["message"]?.jsonPrimitive?.content ?: "Token rejected")
                     _status.value = ConnectionStatus.Failed("Authentication failed", retryable = false)
-                    authResult?.complete(failure)
+                    authResult?.complete(Result.failure(exception))
+                    authResult = null
+                    currentToken = null
+                    initialStatesRequestId = null
+                    _entities.value = emptyMap()
+                    pending.values.forEach { it.complete(Result.failure(exception)) }
+                    pending.clear()
+                    socket = null
+                    webSocket.close(1008, "Authentication failed")
                 }
                 "result" -> completeRequest(message)
                 "event" -> {
@@ -195,6 +212,7 @@ class HomeAssistantWebSocket @Inject constructor(
             socket = null
             currentToken = null
             initialStatesRequestId = null
+            _entities.value = emptyMap()
             _status.value = ConnectionStatus.Failed(message)
             authResult?.complete(Result.failure(t))
             authResult = null
@@ -207,6 +225,7 @@ class HomeAssistantWebSocket @Inject constructor(
             socket = null
             currentToken = null
             initialStatesRequestId = null
+            _entities.value = emptyMap()
             val failure = IllegalStateException(reason.ifBlank { "Home Assistant closed the connection" })
             authResult?.complete(Result.failure(failure))
             authResult = null
