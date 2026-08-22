@@ -257,6 +257,9 @@ class DashboardViewModelTest {
             AppSettings(
                 baseUrl = "https://ha.example",
                 tokenEnvelope = "saved-token",
+                homeShortcuts = listOf(
+                    dev.haquickaccess.tv.domain.model.ShortcutConfiguration(lamp.entityId, ShortcutBehavior.TOGGLE),
+                ),
             ),
         )
         val session = FakeSession(mapOf(lamp.entityId to lamp))
@@ -286,6 +289,49 @@ class DashboardViewModelTest {
 
         viewModel.onBackground()
         assertEquals(2, session.stops)
+    }
+
+    @Test
+    fun `Home channel requires a shortcut and reports publisher failures`() = runTest {
+        val lamp = entity("light.den", "on")
+        val emptyChannel = FakeChannelGateway()
+        val emptyViewModel = viewModel(channel = emptyChannel)
+        observe(emptyViewModel)
+
+        emptyViewModel.enableHomeChannel()
+
+        assertEquals("Choose at least one Home screen shortcut first", emptyViewModel.uiState.value.errorMessage)
+        assertEquals(0, emptyChannel.creates)
+
+        val settings = FakeSettingsStore(
+            AppSettings(
+                homeShortcuts = listOf(
+                    dev.haquickaccess.tv.domain.model.ShortcutConfiguration(lamp.entityId, ShortcutBehavior.TOGGLE),
+                ),
+            ),
+        )
+        val failingChannel = FakeChannelGateway().apply { createFailure = SecurityException() }
+        val viewModel = viewModel(settings, FakeSession(mapOf(lamp.entityId to lamp)), failingChannel)
+        observe(viewModel)
+
+        viewModel.enableHomeChannel()
+
+        assertEquals("Could not update the Android TV Home channel", viewModel.uiState.value.errorMessage)
+        assertFalse(settings.value.homeChannelEnabled)
+    }
+
+    @Test
+    fun `failed Home channel removal keeps the channel configured for retry`() = runTest {
+        val settings = FakeSettingsStore(AppSettings(homeChannelEnabled = true, channelId = 11L))
+        val channel = FakeChannelGateway().apply { removeFailure = SecurityException() }
+        val viewModel = viewModel(settings, channel = channel)
+        observe(viewModel)
+
+        viewModel.disableHomeChannel()
+
+        assertEquals("Could not remove the Android TV Home channel", viewModel.uiState.value.errorMessage)
+        assertTrue(settings.value.homeChannelEnabled)
+        assertEquals(11L, settings.value.channelId)
     }
 
     @Test
@@ -638,7 +684,7 @@ class DashboardViewModelTest {
         settings: FakeSettingsStore = FakeSettingsStore(),
         session: FakeSession = FakeSession(),
         channel: FakeChannelGateway = FakeChannelGateway(),
-    ) = DashboardViewModel(settings, session, channel)
+    ) = DashboardViewModel(settings, session, channel, dispatcher)
 
     private fun entity(
         entityId: String,
@@ -722,13 +768,17 @@ class DashboardViewModelTest {
     private class FakeChannelGateway(private val channelId: Long = 1L) : HomeChannelGateway {
         var creates = 0
         val removed = mutableListOf<Long>()
+        var createFailure: Exception? = null
+        var removeFailure: Exception? = null
 
         override fun createOrUpdate(settings: AppSettings, entities: Map<String, HaEntity>): Long {
             creates += 1
+            createFailure?.let { throw it }
             return channelId
         }
 
         override fun remove(channelId: Long) {
+            removeFailure?.let { throw it }
             removed += channelId
         }
     }

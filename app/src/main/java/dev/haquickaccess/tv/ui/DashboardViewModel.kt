@@ -8,6 +8,7 @@ import dev.haquickaccess.tv.data.ConnectionStatus
 import dev.haquickaccess.tv.data.HomeAssistantSession
 import dev.haquickaccess.tv.data.SettingsStore
 import dev.haquickaccess.tv.data.UrlValidator
+import dev.haquickaccess.tv.di.IoDispatcher
 import dev.haquickaccess.tv.domain.model.ControlAction
 import dev.haquickaccess.tv.domain.model.HaEntity
 import dev.haquickaccess.tv.domain.model.ShortcutBehavior
@@ -21,6 +22,7 @@ import dev.haquickaccess.tv.domain.model.climateTarget
 import dev.haquickaccess.tv.domain.model.levelPercent
 import dev.haquickaccess.tv.platform.HomeChannelGateway
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -30,6 +32,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed interface AppScreen {
     data object Dashboard : AppScreen
@@ -102,6 +105,7 @@ class DashboardViewModel @Inject constructor(
     private val settingsRepository: SettingsStore,
     private val homeAssistantRepository: HomeAssistantSession,
     private val homeChannelPublisher: HomeChannelGateway,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
     private val screen = MutableStateFlow<AppScreen>(AppScreen.Dashboard)
     private val details = MutableStateFlow<DetailState?>(null)
@@ -229,7 +233,7 @@ class DashboardViewModel @Inject constructor(
         connectionValidationJob = null
         homeAssistantRepository.stop()
         activeSession = null
-        latestSettings.channelId?.let(homeChannelPublisher::remove)
+        latestSettings.channelId?.let { removeHomeChannel(it) }
         settingsRepository.clearConnection()
         details.value = null
         screen.value = AppScreen.Dashboard
@@ -403,26 +407,46 @@ class DashboardViewModel @Inject constructor(
     }
 
     fun enableHomeChannel() = viewModelScope.launch {
-        val channelId = homeChannelPublisher.createOrUpdate(latestSettings, latestEntities)
-        settingsRepository.setHomeChannel(enabled = true, channelId = channelId)
-        _homeChannelRequests.emit(channelId)
+        if (latestSettings.homeShortcuts.isEmpty()) {
+            error.value = "Choose at least one Home screen shortcut first"
+            return@launch
+        }
+        publishHomeChannel(latestSettings, requestHomeChannel = true)
     }
 
     fun disableHomeChannel() = viewModelScope.launch {
-        latestSettings.channelId?.let(homeChannelPublisher::remove)
+        val channelId = latestSettings.channelId
+        if (channelId != null && !removeHomeChannel(channelId)) return@launch
         settingsRepository.setHomeChannel(enabled = false)
     }
 
     fun refreshHomeChannel() = viewModelScope.launch {
         if (!latestSettings.homeChannelEnabled) return@launch
-        val channelId = homeChannelPublisher.createOrUpdate(latestSettings, latestEntities)
-        settingsRepository.setHomeChannel(enabled = true, channelId = channelId)
+        publishHomeChannel(latestSettings)
     }
 
     private suspend fun publishShortcutsIfEnabled(shortcuts: List<ShortcutConfiguration>) {
         if (!latestSettings.homeChannelEnabled) return
-        val channelId = homeChannelPublisher.createOrUpdate(latestSettings.copy(homeShortcuts = shortcuts), latestEntities)
+        publishHomeChannel(latestSettings.copy(homeShortcuts = shortcuts))
+    }
+
+    private suspend fun publishHomeChannel(settings: AppSettings, requestHomeChannel: Boolean = false) {
+        val channelId = try {
+            withContext(ioDispatcher) { homeChannelPublisher.createOrUpdate(settings, latestEntities) }
+        } catch (_: Exception) {
+            error.value = "Could not update the Android TV Home channel"
+            return
+        }
         settingsRepository.setHomeChannel(enabled = true, channelId = channelId)
+        if (requestHomeChannel) _homeChannelRequests.emit(channelId)
+    }
+
+    private suspend fun removeHomeChannel(channelId: Long): Boolean = try {
+        withContext(ioDispatcher) { homeChannelPublisher.remove(channelId) }
+        true
+    } catch (_: Exception) {
+        error.value = "Could not remove the Android TV Home channel"
+        false
     }
 
     private fun execute(action: ControlAction) = viewModelScope.launch {
