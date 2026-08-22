@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Blinds
@@ -67,6 +68,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import dev.haquickaccess.tv.data.ConnectionStatus
 import dev.haquickaccess.tv.domain.model.ControlAction
+import dev.haquickaccess.tv.domain.model.ControlBrowser
 import dev.haquickaccess.tv.domain.model.ControlKind
 import dev.haquickaccess.tv.domain.model.HaEntity
 import dev.haquickaccess.tv.domain.model.alarmArmModes
@@ -441,19 +443,58 @@ private fun ShortcutManagerScreen(state: DashboardUiState, onEvent: DashboardVie
 
 @Composable
 private fun TileManagerScreen(state: DashboardUiState, onEvent: DashboardViewModel) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedDomain by remember { mutableStateOf<String?>(null) }
+    val availableControls = state.availableEntities.filter { candidate ->
+        state.settings.tiles.none { it.entityId == candidate.entityId }
+    }
+    val domains = ControlBrowser.domains(availableControls)
+    val filteredControls = ControlBrowser.filter(availableControls, searchQuery, selectedDomain)
+
     Column(Modifier.fillMaxSize()) {
         HaText("Manage controls", 30.sp)
         Spacer(Modifier.height(12.dp))
-        HaText("Blue is the current selection. Green controls are already on the dashboard.", 15.sp, HaMuted)
-        Spacer(Modifier.height(18.dp))
+        HaText("Search by name or entity ID, then filter by type. Green controls are already on the dashboard.", 15.sp, HaMuted)
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            HaTextField(
+                label = "Search controls",
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                secret = false,
+                modifier = Modifier.weight(1f),
+                requestInitialFocus = true,
+            )
+            if (searchQuery.isNotBlank()) {
+                Spacer(Modifier.width(10.dp))
+                HaButton("Clear", { searchQuery = "" })
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            DomainFilter("All", selected = selectedDomain == null) { selectedDomain = null }
+            domains.forEach { domain ->
+                DomainFilter(
+                    label = ControlBrowser.domainLabel(domain),
+                    selected = selectedDomain == domain,
+                ) { selectedDomain = domain }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
             Column(Modifier.weight(1f)) {
-                HaText("Available controls", 19.sp)
+                HaText("Available controls · ${filteredControls.size}", 19.sp)
                 Spacer(Modifier.height(10.dp))
-                EntityList(
-                    entities = state.availableEntities.filter { candidate -> state.settings.tiles.none { it.entityId == candidate.entityId } },
-                    onAdd = onEvent::addTile,
-                )
+                if (filteredControls.isEmpty()) {
+                    EmptyControlResults(searchQuery, selectedDomain)
+                } else {
+                    EntityList(entities = filteredControls, onAdd = onEvent::addTile)
+                }
             }
             Column(Modifier.weight(1f)) {
                 HaText("Added to dashboard", 19.sp, HaGreen)
@@ -462,6 +503,30 @@ private fun TileManagerScreen(state: DashboardUiState, onEvent: DashboardViewMod
             }
         }
         HaButton("Done", onEvent::closeScreen, primary = true)
+    }
+}
+
+@Composable
+private fun DomainFilter(label: String, selected: Boolean, onClick: () -> Unit) {
+    HaButton(label, onClick, primary = selected)
+}
+
+@Composable
+private fun EmptyControlResults(query: String, domain: String?) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(HaSurface, RoundedCornerShape(12.dp))
+            .padding(18.dp),
+    ) {
+        HaText("No matching controls", 17.sp)
+        Spacer(Modifier.height(6.dp))
+        val guidance = when {
+            query.isNotBlank() -> "Try a different name or entity ID."
+            domain != null -> "No ${ControlBrowser.domainLabel(domain).lowercase()} controls are currently available."
+            else -> "Connected Home Assistant controls will appear here."
+        }
+        HaText(guidance, 14.sp, HaMuted)
     }
 }
 
@@ -739,9 +804,11 @@ private fun HaTextField(
     secret: Boolean,
     numeric: Boolean = false,
     requestInitialFocus: Boolean = false,
+    modifier: Modifier = Modifier.width(520.dp),
 ) {
     val focusRequester = remember { FocusRequester() }
-    Column(Modifier.width(520.dp)) {
+    var focused by remember { mutableStateOf(false) }
+    Column(modifier) {
         HaText(label, 14.sp, HaMuted)
         Spacer(Modifier.height(6.dp))
         BasicTextField(
@@ -753,10 +820,17 @@ private fun HaTextField(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focusRequester)
+                .onFocusChanged { focused = it.isFocused }
                 .semantics { contentDescription = label }
                 .background(HaSurface, RoundedCornerShape(10.dp))
-                .border(1.dp, HaBorder, RoundedCornerShape(10.dp))
+                .border(if (focused) 2.dp else 1.dp, if (focused) HaBlue else HaBorder, RoundedCornerShape(10.dp))
                 .padding(14.dp),
+            decorationBox = { innerTextField ->
+                Box {
+                    if (value.isBlank()) HaText("Type to search", 17.sp, HaMuted)
+                    innerTextField()
+                }
+            },
         )
     }
     LaunchedEffect(requestInitialFocus) {
