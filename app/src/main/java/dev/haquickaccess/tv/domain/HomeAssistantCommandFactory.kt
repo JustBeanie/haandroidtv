@@ -13,7 +13,7 @@ data class ServiceCall(
 object HomeAssistantCommandFactory {
     fun create(action: ControlAction): ServiceCall = when (action) {
         is ControlAction.Toggle -> ServiceCall(
-            domain = action.entity.domain,
+            domain = action.entity.domain.takeUnless { it == "group" } ?: "homeassistant",
             service = if (action.entity.isOn) "turn_off" else "turn_on",
             data = entityData(action.entity.entityId),
         )
@@ -35,6 +35,21 @@ object HomeAssistantCommandFactory {
             domain = "climate",
             service = "set_temperature",
             data = JsonObject(entityData(action.entity.entityId) + ("temperature" to JsonPrimitive(action.temperature))),
+        )
+        is ControlAction.ActivateScene -> ServiceCall(
+            domain = "scene",
+            service = "turn_on",
+            data = entityData(action.entity.entityId),
+        )
+        is ControlAction.RunScript -> ServiceCall(
+            domain = "script",
+            service = "turn_on",
+            data = entityData(action.entity.entityId),
+        )
+        is ControlAction.PressButton -> ServiceCall(
+            domain = action.entity.domain,
+            service = "press",
+            data = entityData(action.entity.entityId),
         )
         is ControlAction.CoverCommand -> ServiceCall(
             domain = "cover",

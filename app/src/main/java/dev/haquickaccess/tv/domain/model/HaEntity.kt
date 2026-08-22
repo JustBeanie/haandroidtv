@@ -16,9 +16,10 @@ data class HaEntity(
 ) {
     val domain: String get() = entityId.substringBefore('.', "")
     val name: String get() = attributes["friendly_name"]?.jsonPrimitive?.contentOrNull ?: entityId.substringAfter('.')
-    val unavailable: Boolean get() = state == "unavailable" || state == "unknown"
+    val unavailable: Boolean get() = state == "unavailable" || (state == "unknown" && !isStatelessAction)
     val isOn: Boolean get() = state in setOf("on", "open", "opening")
     val deviceClass: String? get() = attributes.string("device_class")
+    private val isStatelessAction: Boolean get() = domain in setOf("scene", "button", "input_button")
 
     fun string(name: String): String? = attributes.string(name)
     fun number(name: String): Double? = attributes.number(name)
@@ -38,6 +39,10 @@ enum class ControlKind {
     CLIMATE,
     COVER,
     ALARM,
+    GROUP,
+    SCENE,
+    SCRIPT,
+    BUTTON,
     UNSUPPORTED,
 }
 
@@ -48,9 +53,14 @@ data class ControlCapabilities(
     val canSetClimate: Boolean = false,
     val canSetCoverPosition: Boolean = false,
     val canArm: Boolean = false,
+    val canActivate: Boolean = false,
+    val canRun: Boolean = false,
+    val canPress: Boolean = false,
     val requiresSecureCoverConfirmation: Boolean = false,
     val alarmCodeRequired: Boolean = false,
-)
+) {
+    val hasPrimaryAction: Boolean get() = canToggle || canActivate || canRun || canPress
+}
 
 fun HaEntity.capabilities(): ControlCapabilities = when (domain) {
     "light" -> ControlCapabilities(ControlKind.LIGHT, canToggle = true, canSetLevel = number("brightness") != null)
@@ -74,7 +84,18 @@ fun HaEntity.capabilities(): ControlCapabilities = when (domain) {
         canArm = alarmArmModes().isNotEmpty(),
         alarmCodeRequired = attributes["code_arm_required"]?.jsonPrimitive?.booleanOrNull ?: true,
     )
+    "group" -> ControlCapabilities(ControlKind.GROUP, canToggle = true)
+    "scene" -> ControlCapabilities(ControlKind.SCENE, canToggle = false, canActivate = true)
+    "script" -> ControlCapabilities(ControlKind.SCRIPT, canToggle = false, canRun = true)
+    "button", "input_button" -> ControlCapabilities(ControlKind.BUTTON, canToggle = false, canPress = true)
     else -> ControlCapabilities(ControlKind.UNSUPPORTED, canToggle = false)
+}
+
+fun HaEntity.actionLabel(): String = when {
+    capabilities().canActivate -> "Activate"
+    capabilities().canRun -> "Run"
+    capabilities().canPress -> "Press"
+    else -> state.replace('_', ' ').replaceFirstChar(Char::uppercase)
 }
 
 fun HaEntity.levelPercent(): Int? = when (domain) {

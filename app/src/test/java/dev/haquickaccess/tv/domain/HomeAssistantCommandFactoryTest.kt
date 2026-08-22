@@ -79,6 +79,32 @@ class HomeAssistantCommandFactoryTest {
     }
 
     @Test
+    fun `scene script and button actions retain their native service semantics`() {
+        val scene = HomeAssistantCommandFactory.create(ControlAction.ActivateScene(HaEntity("scene.movie_time", "unknown")))
+        val script = HomeAssistantCommandFactory.create(ControlAction.RunScript(HaEntity("script.goodnight", "off")))
+        val button = HomeAssistantCommandFactory.create(ControlAction.PressButton(HaEntity("button.refresh", "unknown")))
+        val inputButton = HomeAssistantCommandFactory.create(ControlAction.PressButton(HaEntity("input_button.test", "unknown")))
+
+        assertEquals("scene", scene.domain)
+        assertEquals("turn_on", scene.service)
+        assertEquals("script", script.domain)
+        assertEquals("turn_on", script.service)
+        assertEquals("button", button.domain)
+        assertEquals("press", button.service)
+        assertEquals("input_button", inputButton.domain)
+        assertEquals("press", inputButton.service)
+    }
+
+    @Test
+    fun `generic groups use the universal homeassistant toggle service`() {
+        val call = HomeAssistantCommandFactory.create(ControlAction.Toggle(HaEntity("group.downstairs", "off")))
+
+        assertEquals("homeassistant", call.domain)
+        assertEquals("turn_on", call.service)
+        assertEquals("group.downstairs", call.data["entity_id"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `alarm arm omits absent code and disarm can send a fresh code`() {
         val entity = HaEntity("alarm_control_panel.home", "disarmed")
         val arm = HomeAssistantCommandFactory.create(ControlAction.ArmAlarm(entity, "away"))

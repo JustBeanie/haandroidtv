@@ -33,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Blinds
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Power
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Thermostat
@@ -73,6 +74,7 @@ import dev.haquickaccess.tv.domain.model.ControlKind
 import dev.haquickaccess.tv.domain.model.HaEntity
 import dev.haquickaccess.tv.domain.model.alarmArmModes
 import dev.haquickaccess.tv.domain.model.alarmCodeIsNumeric
+import dev.haquickaccess.tv.domain.model.actionLabel
 import dev.haquickaccess.tv.domain.model.capabilities
 import dev.haquickaccess.tv.domain.model.climateMaximum
 import dev.haquickaccess.tv.domain.model.climateMinimum
@@ -132,7 +134,7 @@ fun HaQuickAccessApp(
         if (handledDeepLink) return@LaunchedEffect
         deepLinkEntityId?.let { state.entities[it] }?.let { entity ->
             when (deepLinkBehavior) {
-                "toggle" -> if (entity.capabilities().canToggle) onEvent.toggle(entity) else onEvent.openDetails(entity)
+                "toggle" -> onEvent.performPrimaryAction(entity)
                 "details" -> onEvent.openDetails(entity)
                 "focus" -> onEvent.focusEntity(entity.entityId)
                 else -> onEvent.openDetails(entity)
@@ -220,7 +222,7 @@ private fun DashboardScreen(state: DashboardUiState, onEvent: DashboardViewModel
                     HomeAssistantTile(
                         entity = entity,
                         pending = entity.entityId in state.pendingEntityIds,
-                        onClick = { if (entity.capabilities().canToggle) onEvent.toggle(entity) else onEvent.openDetails(entity) },
+                        onClick = { onEvent.performPrimaryAction(entity) },
                         onLongClick = { onEvent.openDetails(entity) },
                         onFocused = { onEvent.saveFocus(entity.entityId) },
                         requestInitialFocus = entity.entityId == initialFocusTarget,
@@ -294,7 +296,7 @@ private fun HomeAssistantTile(
         entity.unavailable -> "Unavailable"
         entity.domain == "climate" -> listOfNotNull(entity.climateTarget()?.roundToInt()?.let { "$it°" }, entity.state.replaceFirstChar(Char::uppercase)).joinToString(" · ")
         entity.levelPercent() != null -> "${entity.levelPercent()}%"
-        else -> entity.state.replace('_', ' ').replaceFirstChar(Char::uppercase)
+        else -> entity.actionLabel()
     }
     Box(
         modifier = Modifier
@@ -596,7 +598,7 @@ private fun EntityListItem(
         Column(Modifier.weight(1f)) {
             HaText(entity.name, 16.sp)
             Spacer(Modifier.height(3.dp))
-            HaText(entity.state.replace('_', ' ').replaceFirstChar(Char::uppercase), 14.sp, HaMuted)
+            HaText(entity.actionLabel(), 14.sp, HaMuted)
         }
         if (showActions) {
             HaText("Added", 13.sp, HaGreen)
@@ -889,6 +891,8 @@ private fun tileIcon(kind: ControlKind) = when (kind) {
     ControlKind.CLIMATE -> Icons.Outlined.Thermostat
     ControlKind.COVER -> Icons.Outlined.Blinds
     ControlKind.ALARM -> Icons.Outlined.Security
-    ControlKind.SWITCH, ControlKind.INPUT_BOOLEAN -> Icons.Outlined.Power
+    ControlKind.SCENE, ControlKind.SCRIPT -> Icons.Outlined.PlayArrow
+    ControlKind.BUTTON -> Icons.Outlined.Toys
+    ControlKind.SWITCH, ControlKind.INPUT_BOOLEAN, ControlKind.GROUP -> Icons.Outlined.Power
     ControlKind.UNSUPPORTED -> Icons.Outlined.WarningAmber
 }

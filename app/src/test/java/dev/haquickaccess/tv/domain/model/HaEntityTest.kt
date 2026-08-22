@@ -92,6 +92,27 @@ class HaEntityTest {
     }
 
     @Test
+    fun `scenes scripts groups and buttons expose their intended actions`() {
+        val scene = HaEntity("scene.movie_time", "unknown")
+        val script = HaEntity("script.goodnight", "off")
+        val group = HaEntity("group.downstairs", "on")
+        val button = HaEntity("button.refresh", "unknown")
+        val inputButton = HaEntity("input_button.test", "unknown")
+
+        assertTrue(scene.capabilities().canActivate)
+        assertFalse(scene.unavailable)
+        assertEquals("Activate", scene.actionLabel())
+        assertTrue(script.capabilities().canRun)
+        assertEquals("Run", script.actionLabel())
+        assertTrue(group.capabilities().canToggle)
+        assertEquals(ControlKind.GROUP, group.capabilities().kind)
+        assertTrue(button.capabilities().canPress)
+        assertTrue(inputButton.capabilities().canPress)
+        assertFalse(button.unavailable)
+        assertEquals("Press", inputButton.actionLabel())
+    }
+
+    @Test
     fun `alarm only exposes declared arm services and retains code format`() {
         val alarm = HaEntity(
             "alarm_control_panel.home",

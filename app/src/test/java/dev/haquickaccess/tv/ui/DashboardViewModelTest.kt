@@ -335,7 +335,7 @@ class DashboardViewModelTest {
     }
 
     @Test
-    fun `climate cover alarm and toggle actions route through the session`() = runTest {
+    fun `primary actions and detail commands route through the session`() = runTest {
         val session = FakeSession()
         val viewModel = viewModel(session = session)
         observe(viewModel)
@@ -354,6 +354,9 @@ class DashboardViewModelTest {
             ),
         )
         val switch = entity("switch.coffee", "off")
+        val scene = entity("scene.movie_time", "unknown")
+        val script = entity("script.goodnight", "off")
+        val button = entity("button.refresh", "unknown")
 
         viewModel.openDetails(climate)
         viewModel.stageClimateTemperature(22.0)
@@ -365,6 +368,9 @@ class DashboardViewModelTest {
         viewModel.openDetails(alarm)
         viewModel.armAlarm("away")
         viewModel.toggle(switch)
+        viewModel.performPrimaryAction(scene)
+        viewModel.performPrimaryAction(script)
+        viewModel.performPrimaryAction(button)
 
         assertEquals(
             listOf(
@@ -373,6 +379,9 @@ class DashboardViewModelTest {
                 ControlAction.CoverCommand(blind, ControlAction.CoverCommand.Command.SET_POSITION, 55),
                 ControlAction.ArmAlarm(alarm, "away"),
                 ControlAction.Toggle(switch),
+                ControlAction.ActivateScene(scene),
+                ControlAction.RunScript(script),
+                ControlAction.PressButton(button),
             ),
             session.actions,
         )

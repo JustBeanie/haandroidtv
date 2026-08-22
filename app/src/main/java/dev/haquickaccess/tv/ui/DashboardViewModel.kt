@@ -294,6 +294,16 @@ class DashboardViewModel @Inject constructor(
         saveFocus(entityId)
     }
 
+    fun performPrimaryAction(entity: HaEntity) {
+        when {
+            entity.capabilities().canToggle -> toggle(entity)
+            entity.capabilities().canActivate -> execute(ControlAction.ActivateScene(entity))
+            entity.capabilities().canRun -> execute(ControlAction.RunScript(entity))
+            entity.capabilities().canPress -> execute(ControlAction.PressButton(entity))
+            else -> openDetails(entity)
+        }
+    }
+
     fun toggle(entity: HaEntity) = execute(ControlAction.Toggle(entity))
 
     fun openDetails(entity: HaEntity) {
@@ -466,6 +476,9 @@ class DashboardViewModel @Inject constructor(
             is ControlAction.SetLevel -> action.entity.entityId
             is ControlAction.SetClimateMode -> action.entity.entityId
             is ControlAction.SetClimateTemperature -> action.entity.entityId
+            is ControlAction.ActivateScene -> action.entity.entityId
+            is ControlAction.RunScript -> action.entity.entityId
+            is ControlAction.PressButton -> action.entity.entityId
             is ControlAction.CoverCommand -> action.entity.entityId
             is ControlAction.ArmAlarm -> action.entity.entityId
             is ControlAction.DisarmAlarm -> action.entity.entityId
