@@ -192,14 +192,26 @@ class HomeAssistantWebSocket @Inject constructor(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             if (socket !== webSocket) return
             val message = t.message ?: "Network connection failed"
+            socket = null
+            currentToken = null
+            initialStatesRequestId = null
             _status.value = ConnectionStatus.Failed(message)
             authResult?.complete(Result.failure(t))
+            authResult = null
             pending.values.forEach { it.complete(Result.failure(t)) }
             pending.clear()
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             if (socket !== webSocket) return
+            socket = null
+            currentToken = null
+            initialStatesRequestId = null
+            val failure = IllegalStateException(reason.ifBlank { "Home Assistant closed the connection" })
+            authResult?.complete(Result.failure(failure))
+            authResult = null
+            pending.values.forEach { it.complete(Result.failure(failure)) }
+            pending.clear()
             if (_status.value !is ConnectionStatus.Failed) _status.value = ConnectionStatus.Disconnected
         }
     }
