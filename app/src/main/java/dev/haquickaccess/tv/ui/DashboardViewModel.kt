@@ -229,6 +229,7 @@ class DashboardViewModel @Inject constructor(
         connectionValidationJob = null
         homeAssistantRepository.stop()
         activeSession = null
+        latestSettings.channelId?.let(homeChannelPublisher::remove)
         settingsRepository.clearConnection()
         details.value = null
         screen.value = AppScreen.Dashboard

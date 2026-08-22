@@ -418,6 +418,29 @@ class DashboardViewModelTest {
     }
 
     @Test
+    fun `forgetting Home Assistant removes an existing Android TV Home channel`() = runTest {
+        val settings = FakeSettingsStore(
+            AppSettings(
+                baseUrl = "https://ha.example",
+                tokenEnvelope = "saved",
+                homeChannelEnabled = true,
+                channelId = 42L,
+            ),
+        )
+        val session = FakeSession()
+        val channel = FakeChannelGateway()
+        val viewModel = viewModel(settings, session, channel)
+        observe(viewModel)
+
+        viewModel.clearConnection()
+        runCurrent()
+
+        assertEquals(listOf(42L), channel.removed)
+        assertEquals(AppSettings(), settings.value)
+        assertEquals(AppScreen.Dashboard, viewModel.uiState.value.screen)
+    }
+
+    @Test
     fun `unreadable saved token reports a recoverable setup error`() = runTest {
         val settings = FakeSettingsStore(AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "bad"))
         settings.decryptFailure = IllegalStateException("Key invalidated")
