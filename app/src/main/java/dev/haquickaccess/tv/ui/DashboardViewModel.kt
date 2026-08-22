@@ -440,6 +440,8 @@ class DashboardViewModel @Inject constructor(
     private suspend fun publishHomeChannel(settings: AppSettings, requestHomeChannel: Boolean = false) {
         val channelId = try {
             withContext(ioDispatcher) { homeChannelPublisher.createOrUpdate(settings, latestEntities) }
+        } catch (exception: CancellationException) {
+            throw exception
         } catch (_: Exception) {
             error.value = "Could not update the Android TV Home channel"
             return
@@ -451,6 +453,8 @@ class DashboardViewModel @Inject constructor(
     private suspend fun removeHomeChannel(channelId: Long): Boolean = try {
         withContext(ioDispatcher) { homeChannelPublisher.remove(channelId) }
         true
+    } catch (exception: CancellationException) {
+        throw exception
     } catch (_: Exception) {
         error.value = "Could not remove the Android TV Home channel"
         false
