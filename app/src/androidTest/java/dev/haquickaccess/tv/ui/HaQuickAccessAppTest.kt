@@ -22,6 +22,7 @@ import dev.haquickaccess.tv.domain.model.HaEntity
 import dev.haquickaccess.tv.domain.model.ShortcutConfiguration
 import dev.haquickaccess.tv.domain.model.TileConfiguration
 import dev.haquickaccess.tv.platform.HomeChannelGateway
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,7 +52,7 @@ class HaQuickAccessAppTest {
             ),
         )
         val session = UiSession(mapOf(den.entityId to den, reading.entityId to reading))
-        val viewModel = DashboardViewModel(settings, session, UiChannelGateway())
+        val viewModel = DashboardViewModel(settings, session, UiChannelGateway(), Dispatchers.IO)
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
@@ -86,7 +87,7 @@ class HaQuickAccessAppTest {
             ),
         )
         val session = UiSession(mapOf(lamp.entityId to lamp))
-        val viewModel = DashboardViewModel(settings, session, UiChannelGateway())
+        val viewModel = DashboardViewModel(settings, session, UiChannelGateway(), Dispatchers.IO)
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
@@ -108,7 +109,7 @@ class HaQuickAccessAppTest {
                 tiles = listOf(TileConfiguration(lamp.entityId, 0)),
             ),
         )
-        val viewModel = DashboardViewModel(settings, UiSession(mapOf(lamp.entityId to lamp)), UiChannelGateway())
+        val viewModel = DashboardViewModel(settings, UiSession(mapOf(lamp.entityId to lamp)), UiChannelGateway(), Dispatchers.IO)
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
@@ -126,7 +127,7 @@ class HaQuickAccessAppTest {
         val settings = UiSettingsStore(
             AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "encrypted"),
         )
-        val viewModel = DashboardViewModel(settings, UiSession(emptyMap()), UiChannelGateway())
+        val viewModel = DashboardViewModel(settings, UiSession(emptyMap()), UiChannelGateway(), Dispatchers.IO)
         viewModel.openSettings()
 
         composeRule.setContent {
@@ -143,7 +144,7 @@ class HaQuickAccessAppTest {
         val settings = UiSettingsStore(
             AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "encrypted", tiles = listOf(TileConfiguration(lamp.entityId, 0))),
         )
-        val viewModel = DashboardViewModel(settings, UiSession(mapOf(lamp.entityId to lamp)), UiChannelGateway())
+        val viewModel = DashboardViewModel(settings, UiSession(mapOf(lamp.entityId to lamp)), UiChannelGateway(), Dispatchers.IO)
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
