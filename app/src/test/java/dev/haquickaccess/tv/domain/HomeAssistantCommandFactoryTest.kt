@@ -105,6 +105,29 @@ class HomeAssistantCommandFactoryTest {
     }
 
     @Test
+    fun `editable helper actions use each helpers native service`() {
+        val number = HomeAssistantCommandFactory.create(
+            ControlAction.SetNumberValue(HaEntity("input_number.sleep_timer", "15"), 30.5),
+        )
+        val select = HomeAssistantCommandFactory.create(
+            ControlAction.SelectOption(HaEntity("input_select.tv_source", "HDMI 1"), "Apps"),
+        )
+        val text = HomeAssistantCommandFactory.create(
+            ControlAction.SetTextValue(HaEntity("input_text.guest_message", "Welcome"), "Good evening"),
+        )
+
+        assertEquals("input_number", number.domain)
+        assertEquals("set_value", number.service)
+        assertEquals("30.5", number.data["value"]?.jsonPrimitive?.content)
+        assertEquals("input_select", select.domain)
+        assertEquals("select_option", select.service)
+        assertEquals("Apps", select.data["option"]?.jsonPrimitive?.content)
+        assertEquals("input_text", text.domain)
+        assertEquals("set_value", text.service)
+        assertEquals("Good evening", text.data["value"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `alarm arm omits absent code and disarm can send a fresh code`() {
         val entity = HaEntity("alarm_control_panel.home", "disarmed")
         val arm = HomeAssistantCommandFactory.create(ControlAction.ArmAlarm(entity, "away"))

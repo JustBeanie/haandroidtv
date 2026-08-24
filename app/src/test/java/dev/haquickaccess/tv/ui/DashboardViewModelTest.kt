@@ -26,6 +26,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonArray
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -430,6 +431,69 @@ class DashboardViewModelTest {
         viewModel.applyClimateTemperature()
 
         assertEquals(ControlAction.SetClimateTemperature(climate, 20.5), session.actions.single())
+    }
+
+    @Test
+    fun `editable helpers stage valid values and send native actions`() = runTest {
+        val session = FakeSession()
+        val number = entity(
+            "input_number.sleep_timer",
+            "15",
+            attributes = mapOf("min" to JsonPrimitive(0.0), "max" to JsonPrimitive(90.0), "step" to JsonPrimitive(0.5)),
+        )
+        val select = HaEntity(
+            "input_select.tv_source",
+            "HDMI 1",
+            JsonObject(mapOf("options" to JsonArray(listOf(JsonPrimitive("HDMI 1"), JsonPrimitive("Apps"))))),
+        )
+        val text = entity("input_text.guest_message", "Welcome")
+        val viewModel = viewModel(session = session)
+        observe(viewModel)
+
+        viewModel.openDetails(number)
+        assertEquals(15.0, assertIs<DetailState.Number>(viewModel.uiState.value.details).stagedValue)
+        viewModel.stageNumberValue(-200.0)
+        assertEquals(0.0, assertIs<DetailState.Number>(viewModel.uiState.value.details).stagedValue)
+        viewModel.stageNumberValue(200.0)
+        assertEquals(90.0, assertIs<DetailState.Number>(viewModel.uiState.value.details).stagedValue)
+        viewModel.applyNumberValue()
+
+        viewModel.openDetails(select)
+        viewModel.selectOption("missing")
+        assertTrue(session.actions.size == 1)
+        viewModel.selectOption("Apps")
+
+        viewModel.openDetails(text)
+        viewModel.updateTextValue("Good evening")
+        viewModel.applyTextValue()
+
+        assertEquals(
+            listOf<ControlAction>(
+                ControlAction.SetNumberValue(number, 90.0),
+                ControlAction.SelectOption(select, "Apps"),
+                ControlAction.SetTextValue(text, "Good evening"),
+            ),
+            session.actions,
+        )
+        assertNull(viewModel.uiState.value.details)
+    }
+
+    @Test
+    fun `editable helper details use safe defaults for unknown values`() = runTest {
+        val number = entity(
+            "input_number.sleep_timer",
+            "unknown",
+            attributes = mapOf("min" to JsonPrimitive(10.0), "max" to JsonPrimitive(90.0)),
+        )
+        val text = entity("input_text.guest_message", "unknown")
+        val viewModel = viewModel()
+        observe(viewModel)
+
+        viewModel.openDetails(number)
+        assertEquals(10.0, assertIs<DetailState.Number>(viewModel.uiState.value.details).stagedValue)
+
+        viewModel.openDetails(text)
+        assertEquals("", assertIs<DetailState.Text>(viewModel.uiState.value.details).stagedValue)
     }
 
     @Test

@@ -51,6 +51,21 @@ object HomeAssistantCommandFactory {
             service = "press",
             data = entityData(action.entity.entityId),
         )
+        is ControlAction.SetNumberValue -> ServiceCall(
+            domain = action.entity.domain,
+            service = "set_value",
+            data = JsonObject(entityData(action.entity.entityId) + ("value" to JsonPrimitive(action.value))),
+        )
+        is ControlAction.SelectOption -> ServiceCall(
+            domain = action.entity.domain,
+            service = "select_option",
+            data = JsonObject(entityData(action.entity.entityId) + ("option" to JsonPrimitive(action.option))),
+        )
+        is ControlAction.SetTextValue -> ServiceCall(
+            domain = action.entity.domain,
+            service = "set_value",
+            data = JsonObject(entityData(action.entity.entityId) + ("value" to JsonPrimitive(action.value))),
+        )
         is ControlAction.CoverCommand -> ServiceCall(
             domain = "cover",
             service = when (action.command) {

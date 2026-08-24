@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -82,7 +83,12 @@ import dev.haquickaccess.tv.domain.model.climateStep
 import dev.haquickaccess.tv.domain.model.climateTarget
 import dev.haquickaccess.tv.domain.model.hvacModes
 import dev.haquickaccess.tv.domain.model.levelPercent
+import dev.haquickaccess.tv.domain.model.numberMaximum
+import dev.haquickaccess.tv.domain.model.numberMinimum
+import dev.haquickaccess.tv.domain.model.numberStep
+import dev.haquickaccess.tv.domain.model.selectOptions
 import kotlin.math.roundToInt
+import java.util.Locale
 
 private val HaBackground = Color(0xFF111111)
 private val HaSurface = Color(0xFF1C1C1C)
@@ -177,6 +183,7 @@ private fun SetupScreen(state: DashboardUiState, onEvent: DashboardViewModel) {
             value = state.setupBaseUrl,
             onValueChange = onEvent::updateSetupBaseUrl,
             secret = false,
+            placeholder = "https://homeassistant.local:8123",
             requestInitialFocus = true,
         )
         Spacer(Modifier.height(14.dp))
@@ -465,6 +472,7 @@ private fun TileManagerScreen(state: DashboardUiState, onEvent: DashboardViewMod
                 onValueChange = { searchQuery = it },
                 secret = false,
                 modifier = Modifier.weight(1f),
+                placeholder = "Search name or entity ID",
                 requestInitialFocus = true,
             )
             if (searchQuery.isNotBlank()) {
@@ -631,6 +639,9 @@ private fun DetailDialog(detail: DetailState, onEvent: DashboardViewModel) {
                 is DetailState.Climate -> ClimateDetails(detail, onEvent)
                 is DetailState.Cover -> CoverDetails(detail, onEvent)
                 is DetailState.Alarm -> AlarmDetails(detail, onEvent)
+                is DetailState.Number -> NumberDetails(detail, onEvent)
+                is DetailState.Select -> SelectDetails(detail, onEvent)
+                is DetailState.Text -> TextDetails(detail, onEvent)
             }
         }
     }
@@ -749,6 +760,70 @@ private fun AlarmDetails(detail: DetailState.Alarm, onEvent: DashboardViewModel)
 }
 
 @Composable
+private fun NumberDetails(detail: DetailState.Number, onEvent: DashboardViewModel) {
+    val minimum = detail.entity.numberMinimum()
+    val maximum = detail.entity.numberMaximum()
+    HaText(detail.entity.name, 25.sp)
+    Spacer(Modifier.height(8.dp))
+    HaText("Value: ${formatNumber(detail.stagedValue)}", 17.sp, HaMuted)
+    Spacer(Modifier.height(4.dp))
+    HaText("Range ${formatNumber(minimum)}–${formatNumber(maximum)} · step ${formatNumber(detail.entity.numberStep())}", 14.sp, HaMuted)
+    Spacer(Modifier.height(20.dp))
+    DecimalStepper(
+        value = detail.stagedValue,
+        minimum = minimum,
+        maximum = maximum,
+        step = detail.entity.numberStep(),
+        onChange = onEvent::stageNumberValue,
+    )
+    Spacer(Modifier.height(24.dp))
+    ActionRow("Cancel", onEvent::closeDetails, "Apply", onEvent::applyNumberValue)
+}
+
+@Composable
+private fun SelectDetails(detail: DetailState.Select, onEvent: DashboardViewModel) {
+    HaText(detail.entity.name, 25.sp)
+    Spacer(Modifier.height(8.dp))
+    HaText("Choose an option", 17.sp, HaMuted)
+    Spacer(Modifier.height(18.dp))
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = 320.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        detail.entity.selectOptions().forEach { option ->
+            HaButton(
+                label = option,
+                onClick = { onEvent.selectOption(option) },
+                primary = option == detail.selectedOption,
+            )
+        }
+    }
+    Spacer(Modifier.height(22.dp))
+    HaButton("Cancel", onEvent::closeDetails)
+}
+
+@Composable
+private fun TextDetails(detail: DetailState.Text, onEvent: DashboardViewModel) {
+    HaText(detail.entity.name, 25.sp)
+    Spacer(Modifier.height(8.dp))
+    HaText("Update the text value", 17.sp, HaMuted)
+    Spacer(Modifier.height(18.dp))
+    HaTextField(
+        label = "Value",
+        value = detail.stagedValue,
+        onValueChange = onEvent::updateTextValue,
+        secret = false,
+        placeholder = "Enter value",
+        requestInitialFocus = true,
+    )
+    Spacer(Modifier.height(24.dp))
+    ActionRow("Cancel", onEvent::closeDetails, "Apply", onEvent::applyTextValue)
+}
+
+@Composable
 private fun ValueStepper(value: Int, range: IntRange, onChange: (Int) -> Unit, increment: Int = 5) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         HaButton("−", { onChange((value - increment).coerceAtLeast(range.first)) })
@@ -756,6 +831,25 @@ private fun ValueStepper(value: Int, range: IntRange, onChange: (Int) -> Unit, i
             Box(Modifier.fillMaxWidth((value - range.first).toFloat() / (range.last - range.first).coerceAtLeast(1)).height(12.dp).background(HaAmber, RoundedCornerShape(8.dp)))
         }
         HaButton("+", { onChange((value + increment).coerceAtMost(range.last)) })
+    }
+}
+
+@Composable
+private fun DecimalStepper(
+    value: Double,
+    minimum: Double,
+    maximum: Double,
+    step: Double,
+    onChange: (Double) -> Unit,
+) {
+    val span = (maximum - minimum).takeIf { it > 0 } ?: 1.0
+    val progress = ((value - minimum) / span).toFloat().coerceIn(0f, 1f)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        HaButton("−", { onChange((value - step).coerceAtLeast(minimum)) })
+        Box(Modifier.weight(1f).height(12.dp).background(HaBorder, RoundedCornerShape(8.dp))) {
+            Box(Modifier.fillMaxWidth(progress).height(12.dp).background(HaAmber, RoundedCornerShape(8.dp)))
+        }
+        HaButton("+", { onChange((value + step).coerceAtMost(maximum)) })
     }
 }
 
@@ -807,6 +901,7 @@ private fun HaTextField(
     numeric: Boolean = false,
     requestInitialFocus: Boolean = false,
     modifier: Modifier = Modifier.width(520.dp),
+    placeholder: String = "Enter value",
 ) {
     val focusRequester = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
@@ -816,6 +911,7 @@ private fun HaTextField(
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
+            singleLine = true,
             textStyle = TextStyle(color = HaText, fontSize = 17.sp),
             keyboardOptions = KeyboardOptions(keyboardType = if (numeric) KeyboardType.NumberPassword else KeyboardType.Text),
             visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
@@ -829,7 +925,7 @@ private fun HaTextField(
                 .padding(14.dp),
             decorationBox = { innerTextField ->
                 Box {
-                    if (value.isBlank()) HaText("Type to search", 17.sp, HaMuted)
+                    if (value.isBlank()) HaText(placeholder, 17.sp, HaMuted)
                     innerTextField()
                 }
             },
@@ -893,6 +989,11 @@ private fun tileIcon(kind: ControlKind) = when (kind) {
     ControlKind.ALARM -> Icons.Outlined.Security
     ControlKind.SCENE, ControlKind.SCRIPT -> Icons.Outlined.PlayArrow
     ControlKind.BUTTON -> Icons.Outlined.Toys
+    ControlKind.NUMBER, ControlKind.SELECT, ControlKind.TEXT -> Icons.Outlined.Settings
     ControlKind.SWITCH, ControlKind.INPUT_BOOLEAN, ControlKind.GROUP -> Icons.Outlined.Power
     ControlKind.UNSUPPORTED -> Icons.Outlined.WarningAmber
 }
+
+private fun formatNumber(value: Double): String = String.format(Locale.US, "%.3f", value)
+    .trimEnd('0')
+    .trimEnd('.')

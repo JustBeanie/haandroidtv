@@ -8,6 +8,9 @@ sealed interface ControlAction {
     data class ActivateScene(val entity: HaEntity) : ControlAction
     data class RunScript(val entity: HaEntity) : ControlAction
     data class PressButton(val entity: HaEntity) : ControlAction
+    data class SetNumberValue(val entity: HaEntity, val value: Double) : ControlAction
+    data class SelectOption(val entity: HaEntity, val option: String) : ControlAction
+    data class SetTextValue(val entity: HaEntity, val value: String) : ControlAction
     data class CoverCommand(val entity: HaEntity, val command: Command, val position: Int? = null) : ControlAction {
         enum class Command { OPEN, CLOSE, STOP, SET_POSITION }
     }

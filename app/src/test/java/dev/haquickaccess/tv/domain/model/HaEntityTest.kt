@@ -7,6 +7,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonArray
 
 class HaEntityTest {
     @Test
@@ -110,6 +111,56 @@ class HaEntityTest {
         assertTrue(inputButton.capabilities().canPress)
         assertFalse(button.unavailable)
         assertEquals("Press", inputButton.actionLabel())
+    }
+
+    @Test
+    fun `number select and text helpers expose bounded editable controls`() {
+        val number = HaEntity(
+            "input_number.sleep_timer",
+            "15.5",
+            JsonObject(mapOf("min" to JsonPrimitive(0.0), "max" to JsonPrimitive(90.0), "step" to JsonPrimitive(0.5))),
+        )
+        val select = HaEntity(
+            "input_select.tv_source",
+            "HDMI 1",
+            JsonObject(mapOf("options" to JsonArray(listOf(JsonPrimitive("HDMI 1"), JsonPrimitive("Apps"))))),
+        )
+        val text = HaEntity("input_text.guest_message", "Welcome")
+
+        assertEquals(ControlKind.NUMBER, number.capabilities().kind)
+        assertTrue(number.capabilities().canSetNumber)
+        assertEquals(0.0, number.numberMinimum())
+        assertEquals(90.0, number.numberMaximum())
+        assertEquals(0.5, number.numberStep())
+        assertEquals(ControlKind.SELECT, select.capabilities().kind)
+        assertTrue(select.capabilities().canSelectOption)
+        assertEquals(listOf("HDMI 1", "Apps"), select.selectOptions())
+        assertTrue(text.capabilities().canSetText)
+        assertFalse(HaEntity("input_select.empty", "unknown").capabilities().canSelectOption)
+    }
+
+    @Test
+    fun `editable helper defaults remain safe when Home Assistant omits or rejects values`() {
+        val unboundedNumber = HaEntity("number.volume_limit", "unknown")
+        val invalidStep = HaEntity(
+            "input_number.sleep_timer",
+            "15",
+            JsonObject(mapOf("step" to JsonPrimitive(0))),
+        )
+        val nativeSelect = HaEntity(
+            "select.input_source",
+            "TV",
+            JsonObject(mapOf("options" to JsonArray(listOf(JsonPrimitive("TV"))))),
+        )
+        val nativeText = HaEntity("text.status_message", "Ready")
+
+        assertTrue(unboundedNumber.capabilities().canSetNumber)
+        assertEquals(0.0, unboundedNumber.numberMinimum())
+        assertEquals(100.0, unboundedNumber.numberMaximum())
+        assertEquals(1.0, unboundedNumber.numberStep())
+        assertEquals(1.0, invalidStep.numberStep())
+        assertTrue(nativeSelect.capabilities().canSelectOption)
+        assertTrue(nativeText.capabilities().canSetText)
     }
 
     @Test

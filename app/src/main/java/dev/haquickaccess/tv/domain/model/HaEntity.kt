@@ -43,6 +43,9 @@ enum class ControlKind {
     SCENE,
     SCRIPT,
     BUTTON,
+    NUMBER,
+    SELECT,
+    TEXT,
     UNSUPPORTED,
 }
 
@@ -56,6 +59,9 @@ data class ControlCapabilities(
     val canActivate: Boolean = false,
     val canRun: Boolean = false,
     val canPress: Boolean = false,
+    val canSetNumber: Boolean = false,
+    val canSelectOption: Boolean = false,
+    val canSetText: Boolean = false,
     val requiresSecureCoverConfirmation: Boolean = false,
     val alarmCodeRequired: Boolean = false,
 ) {
@@ -88,6 +94,9 @@ fun HaEntity.capabilities(): ControlCapabilities = when (domain) {
     "scene" -> ControlCapabilities(ControlKind.SCENE, canToggle = false, canActivate = true)
     "script" -> ControlCapabilities(ControlKind.SCRIPT, canToggle = false, canRun = true)
     "button", "input_button" -> ControlCapabilities(ControlKind.BUTTON, canToggle = false, canPress = true)
+    "number", "input_number" -> ControlCapabilities(ControlKind.NUMBER, canToggle = false, canSetNumber = true)
+    "select", "input_select" -> ControlCapabilities(ControlKind.SELECT, canToggle = false, canSelectOption = strings("options").isNotEmpty())
+    "text", "input_text" -> ControlCapabilities(ControlKind.TEXT, canToggle = false, canSetText = true)
     else -> ControlCapabilities(ControlKind.UNSUPPORTED, canToggle = false)
 }
 
@@ -110,6 +119,10 @@ fun HaEntity.climateMinimum(): Double = number("min_temp") ?: 7.0
 fun HaEntity.climateMaximum(): Double = number("max_temp") ?: 35.0
 fun HaEntity.climateTarget(): Double? = number("temperature")
 fun HaEntity.hvacModes(): List<String> = strings("hvac_modes")
+fun HaEntity.numberMinimum(): Double = number("min") ?: 0.0
+fun HaEntity.numberMaximum(): Double = number("max") ?: 100.0
+fun HaEntity.numberStep(): Double = number("step")?.takeIf { it > 0 } ?: 1.0
+fun HaEntity.selectOptions(): List<String> = strings("options")
 
 /**
  * The alarm-control-panel integration exposes this bit field in state attributes.

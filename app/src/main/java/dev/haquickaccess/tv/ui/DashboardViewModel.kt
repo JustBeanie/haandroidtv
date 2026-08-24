@@ -20,6 +20,9 @@ import dev.haquickaccess.tv.domain.model.climateMaximum
 import dev.haquickaccess.tv.domain.model.climateMinimum
 import dev.haquickaccess.tv.domain.model.climateTarget
 import dev.haquickaccess.tv.domain.model.levelPercent
+import dev.haquickaccess.tv.domain.model.numberMaximum
+import dev.haquickaccess.tv.domain.model.numberMinimum
+import dev.haquickaccess.tv.domain.model.selectOptions
 import dev.haquickaccess.tv.platform.HomeChannelGateway
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -61,6 +64,13 @@ sealed interface DetailState {
         val pendingPosition: Int? = null,
     ) : DetailState
     data class Alarm(val entity: HaEntity, val disarmCode: String = "", val armMode: String? = null) : DetailState
+    data class Number(
+        val entity: HaEntity,
+        val stagedValue: Double = entity.state.toDoubleOrNull()?.coerceIn(entity.numberMinimum(), entity.numberMaximum())
+            ?: entity.numberMinimum(),
+    ) : DetailState
+    data class Select(val entity: HaEntity, val selectedOption: String = entity.state) : DetailState
+    data class Text(val entity: HaEntity, val stagedValue: String = entity.state.takeUnless { it == "unknown" }.orEmpty()) : DetailState
 }
 
 data class DashboardUiState(
@@ -312,6 +322,9 @@ class DashboardViewModel @Inject constructor(
             entity.domain == "climate" -> DetailState.Climate(entity)
             entity.domain == "cover" -> DetailState.Cover(entity)
             entity.domain == "alarm_control_panel" -> DetailState.Alarm(entity)
+            entity.capabilities().canSetNumber -> DetailState.Number(entity)
+            entity.capabilities().canSelectOption -> DetailState.Select(entity)
+            entity.capabilities().canSetText -> DetailState.Text(entity)
             else -> null
         }
     }
@@ -383,6 +396,35 @@ class DashboardViewModel @Inject constructor(
 
     fun updateAlarmCode(code: String) {
         details.value = (details.value as? DetailState.Alarm)?.copy(disarmCode = code.take(16))
+    }
+
+    fun stageNumberValue(value: Double) {
+        details.value = (details.value as? DetailState.Number)?.let { detail ->
+            detail.copy(stagedValue = value.coerceIn(detail.entity.numberMinimum(), detail.entity.numberMaximum()))
+        }
+    }
+
+    fun applyNumberValue() {
+        val detail = details.value as? DetailState.Number ?: return
+        execute(ControlAction.SetNumberValue(detail.entity, detail.stagedValue))
+        details.value = null
+    }
+
+    fun selectOption(option: String) {
+        val detail = details.value as? DetailState.Select ?: return
+        if (option !in detail.entity.selectOptions()) return
+        execute(ControlAction.SelectOption(detail.entity, option))
+        details.value = null
+    }
+
+    fun updateTextValue(value: String) {
+        details.value = (details.value as? DetailState.Text)?.copy(stagedValue = value)
+    }
+
+    fun applyTextValue() {
+        val detail = details.value as? DetailState.Text ?: return
+        execute(ControlAction.SetTextValue(detail.entity, detail.stagedValue))
+        details.value = null
     }
 
     fun armAlarm(mode: String) {
@@ -479,6 +521,9 @@ class DashboardViewModel @Inject constructor(
             is ControlAction.ActivateScene -> action.entity.entityId
             is ControlAction.RunScript -> action.entity.entityId
             is ControlAction.PressButton -> action.entity.entityId
+            is ControlAction.SetNumberValue -> action.entity.entityId
+            is ControlAction.SelectOption -> action.entity.entityId
+            is ControlAction.SetTextValue -> action.entity.entityId
             is ControlAction.CoverCommand -> action.entity.entityId
             is ControlAction.ArmAlarm -> action.entity.entityId
             is ControlAction.DisarmAlarm -> action.entity.entityId
