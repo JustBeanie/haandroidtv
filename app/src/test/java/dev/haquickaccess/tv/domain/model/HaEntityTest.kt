@@ -11,6 +11,15 @@ import kotlinx.serialization.json.JsonArray
 
 class HaEntityTest {
     @Test
+    fun `primary action is available for every executable control capability`() {
+        assertTrue(ControlCapabilities(ControlKind.SWITCH, canToggle = true).hasPrimaryAction)
+        assertTrue(ControlCapabilities(ControlKind.SCENE, canToggle = false, canActivate = true).hasPrimaryAction)
+        assertTrue(ControlCapabilities(ControlKind.SCRIPT, canToggle = false, canRun = true).hasPrimaryAction)
+        assertTrue(ControlCapabilities(ControlKind.BUTTON, canToggle = false, canPress = true).hasPrimaryAction)
+        assertFalse(ControlCapabilities(ControlKind.CLIMATE, canToggle = false).hasPrimaryAction)
+    }
+
+    @Test
     fun `light with brightness is dimmable and exposes percentage`() {
         val entity = HaEntity(
             "light.living_room",
@@ -89,7 +98,8 @@ class HaEntityTest {
                 JsonObject(mapOf("code_arm_required" to JsonPrimitive(false))),
             ).capabilities().alarmCodeRequired,
         )
-        assertEquals(ControlKind.UNSUPPORTED, HaEntity("media_player.shield", "on").capabilities().kind)
+        assertFalse(HaEntity("media_player.shield", "on").capabilities().isQuickControl)
+        assertTrue(HaEntity("switch.coffee", "off").capabilities().isQuickControl)
     }
 
     @Test

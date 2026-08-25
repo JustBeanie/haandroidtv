@@ -20,6 +20,7 @@ internal const val SERVICE_CALL_TIMEOUT_MS = 10_000L
 
 interface HomeAssistantSession {
     val entities: StateFlow<Map<String, HaEntity>>
+    val initialStatesLoaded: StateFlow<Boolean>
     val status: StateFlow<ConnectionStatus>
     suspend fun validateConnection(baseUrl: String, token: String): Result<Unit>
     fun start(baseUrl: String, token: String)
@@ -33,6 +34,7 @@ class HomeAssistantRepository @Inject constructor(
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : HomeAssistantSession {
     override val entities: StateFlow<Map<String, HaEntity>> = gateway.entities
+    override val initialStatesLoaded: StateFlow<Boolean> = gateway.initialStatesLoaded
     override val status: StateFlow<ConnectionStatus> = gateway.status
 
     private var sessionScope: CoroutineScope? = null

@@ -4,9 +4,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.performTouchInput
@@ -118,7 +120,7 @@ class HaQuickAccessAppTest {
 
         composeRule.onNodeWithContentDescription("den, 50%").performTouchInput { longClick() }
 
-        composeRule.onNodeWithContentDescription("Control details").assertIsFocused()
+        composeRule.onNodeWithContentDescription("Cancel").assertIsFocused()
         composeRule.onNodeWithText("Brightness: 50%").assertIsDisplayed()
     }
 
@@ -139,6 +141,53 @@ class HaQuickAccessAppTest {
     }
 
     @Test
+    fun empty_dashboard_manager_uses_a_single_full_width_browser() {
+        val lamp = HaEntity("light.den", "off")
+        val settings = UiSettingsStore(
+            AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "encrypted"),
+        )
+        val viewModel = DashboardViewModel(settings, UiSession(mapOf(lamp.entityId to lamp)), UiChannelGateway(), Dispatchers.IO)
+        viewModel.openTileManager()
+
+        composeRule.setContent {
+            val state by viewModel.uiState.collectAsState()
+            HaQuickAccessApp(state, null, null, viewModel)
+        }
+
+        composeRule.onNodeWithText("Ready TV controls · 1").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("All").assertIsFocused()
+    }
+
+    @Test
+    fun configured_tile_manager_shows_order_preview_and_bounded_reorder_actions() {
+        val den = HaEntity("light.den", "off")
+        val reading = HaEntity("switch.reading", "off")
+        val settings = UiSettingsStore(
+            AppSettings(
+                baseUrl = "https://ha.example",
+                tokenEnvelope = "encrypted",
+                tiles = listOf(TileConfiguration(den.entityId, 0), TileConfiguration(reading.entityId, 1)),
+            ),
+        )
+        val viewModel = DashboardViewModel(
+            settings,
+            UiSession(mapOf(den.entityId to den, reading.entityId to reading)),
+            UiChannelGateway(),
+            Dispatchers.IO,
+        )
+        viewModel.openTileManager()
+
+        composeRule.setContent {
+            val state by viewModel.uiState.collectAsState()
+            HaQuickAccessApp(state, null, null, viewModel)
+        }
+
+        composeRule.onNodeWithContentDescription("Current dashboard order: 1. den, 2. reading").assertIsDisplayed()
+        composeRule.onNodeWithText("Tile 1 of 2").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Earlier")[0].assertIsNotEnabled()
+    }
+
+    @Test
     fun launcher_details_deep_link_opens_the_target_panel() {
         val lamp = HaEntity("light.den", "on", JsonObject(mapOf("brightness" to JsonPrimitive(128))))
         val settings = UiSettingsStore(
@@ -152,6 +201,21 @@ class HaQuickAccessAppTest {
         }
 
         composeRule.onNodeWithText("Brightness: 50%").assertIsDisplayed()
+    }
+
+    @Test
+    fun stale_launcher_deep_link_offers_a_visible_recovery_action() {
+        val settings = UiSettingsStore(
+            AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "encrypted"),
+        )
+        val viewModel = DashboardViewModel(settings, UiSession(emptyMap()), UiChannelGateway(), Dispatchers.IO)
+
+        composeRule.setContent {
+            val state by viewModel.uiState.collectAsState()
+            HaQuickAccessApp(state, "light.removed", "focus", viewModel)
+        }
+
+        composeRule.onNodeWithText("Shortcut needs attention").assertIsDisplayed()
     }
 
     private class UiSettingsStore(initial: AppSettings) : SettingsStore {
@@ -187,6 +251,7 @@ class HaQuickAccessAppTest {
 
     private class UiSession(entities: Map<String, HaEntity>) : HomeAssistantSession {
         override val entities: StateFlow<Map<String, HaEntity>> = MutableStateFlow(entities).asStateFlow()
+        override val initialStatesLoaded: StateFlow<Boolean> = MutableStateFlow(true).asStateFlow()
         override val status: StateFlow<ConnectionStatus> = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Connected("test")).asStateFlow()
         val actions = mutableListOf<ControlAction>()
         val starts = mutableListOf<Pair<String, String>>()
@@ -206,5 +271,6 @@ class HaQuickAccessAppTest {
     private class UiChannelGateway : HomeChannelGateway {
         override fun createOrUpdate(settings: AppSettings, entities: Map<String, HaEntity>): Long = 1L
         override fun remove(channelId: Long) = Unit
+        override fun isProjectivyInstalled(): Boolean = false
     }
 }

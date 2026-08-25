@@ -73,9 +73,28 @@ sealed interface DetailState {
     data class Text(val entity: HaEntity, val stagedValue: String = entity.state.takeUnless { it == "unknown" }.orEmpty()) : DetailState
 }
 
+data class FocusRequest(
+    val entityId: String,
+    val sequence: Long,
+)
+
+data class LauncherRecovery(
+    val message: String,
+    val staleEntityId: String,
+    val behavior: ShortcutBehavior,
+)
+
+data class LauncherShortcutReplacement(
+    val staleEntityId: String,
+    val behavior: ShortcutBehavior,
+)
+
 data class DashboardUiState(
     val settings: AppSettings = AppSettings(),
+    val isSettingsLoaded: Boolean = false,
+    val isProjectivyInstalled: Boolean = false,
     val entities: Map<String, HaEntity> = emptyMap(),
+    val areInitialStatesLoaded: Boolean = false,
     val screen: AppScreen = AppScreen.Dashboard,
     val details: DetailState? = null,
     val pendingEntityIds: Set<String> = emptySet(),
@@ -85,6 +104,9 @@ data class DashboardUiState(
     val isForeground: Boolean = false,
     val isSavingConnection: Boolean = false,
     val connectionStatus: ConnectionStatus = ConnectionStatus.Disconnected,
+    val focusRequest: FocusRequest? = null,
+    val launcherRecovery: LauncherRecovery? = null,
+    val launcherShortcutReplacement: LauncherShortcutReplacement? = null,
 ) {
     val isConfigured: Boolean get() = settings.baseUrl != null && settings.tokenEnvelope != null
     val tiles: List<HaEntity> get() = settings.tiles.sortedBy(TileConfiguration::position).mapNotNull { entities[it.entityId] }
@@ -93,7 +115,9 @@ data class DashboardUiState(
 
 private data class DashboardConnectionState(
     val settings: AppSettings,
+    val settingsLoaded: Boolean,
     val entities: Map<String, HaEntity>,
+    val initialStatesLoaded: Boolean,
     val status: ConnectionStatus,
 )
 
@@ -102,6 +126,9 @@ private data class DashboardInteractionState(
     val details: DetailState?,
     val pendingEntityIds: Set<String>,
     val errorMessage: String?,
+    val focusRequest: FocusRequest?,
+    val launcherRecovery: LauncherRecovery?,
+    val launcherShortcutReplacement: LauncherShortcutReplacement?,
 )
 
 private data class DashboardSetupState(
@@ -122,6 +149,9 @@ class DashboardViewModel @Inject constructor(
     private val details = MutableStateFlow<DetailState?>(null)
     private val pending = MutableStateFlow<Set<String>>(emptySet())
     private val error = MutableStateFlow<String?>(null)
+    private val focusRequest = MutableStateFlow<FocusRequest?>(null)
+    private val launcherRecovery = MutableStateFlow<LauncherRecovery?>(null)
+    private val launcherShortcutReplacement = MutableStateFlow<LauncherShortcutReplacement?>(null)
     private val setupBaseUrl = MutableStateFlow("")
     private val setupToken = MutableStateFlow("")
     private val foreground = MutableStateFlow(false)
@@ -130,26 +160,53 @@ class DashboardViewModel @Inject constructor(
     val homeChannelRequests = _homeChannelRequests
     private var latestSettings = AppSettings()
     private var latestEntities: Map<String, HaEntity> = emptyMap()
+    private var cachedEntities: Map<String, HaEntity> = emptyMap()
     private var activeSession: Pair<String, String>? = null
     private var connectionValidationJob: Job? = null
+    private var nextFocusRequestSequence = 0L
+    private val isProjectivyInstalled = homeChannelPublisher.isProjectivyInstalled()
 
     private val connectionState = combine(
         settingsRepository.settings,
         homeAssistantRepository.entities,
+        homeAssistantRepository.initialStatesLoaded,
         homeAssistantRepository.status,
-    ) { currentSettings, entities, status ->
+    ) { currentSettings, entities, initialStatesLoaded, status ->
         latestSettings = currentSettings
         latestEntities = entities
-        DashboardConnectionState(currentSettings, entities, status)
+        if (entities.isNotEmpty()) cachedEntities = entities
+        val canShowCachedEntities =
+            !initialStatesLoaded &&
+                entities.isEmpty() &&
+                cachedEntities.isNotEmpty() &&
+                currentSettings.baseUrl != null &&
+                currentSettings.tokenEnvelope != null
+        DashboardConnectionState(
+            settings = currentSettings,
+            settingsLoaded = true,
+            entities = if (canShowCachedEntities) cachedEntities else entities,
+            initialStatesLoaded = initialStatesLoaded,
+            status = status,
+        )
     }
 
     private val interactionState = combine(
-        screen,
-        details,
-        pending,
-        error,
-    ) { currentScreen, currentDetails, currentPending, currentError ->
-        DashboardInteractionState(currentScreen, currentDetails, currentPending, currentError)
+        combine(
+            screen,
+            details,
+            pending,
+            error,
+            focusRequest,
+        ) { currentScreen, currentDetails, currentPending, currentError, currentFocusRequest ->
+            DashboardInteractionState(currentScreen, currentDetails, currentPending, currentError, currentFocusRequest, null, null)
+        },
+        launcherRecovery,
+        launcherShortcutReplacement,
+    ) { interaction, currentLauncherRecovery, currentLauncherShortcutReplacement ->
+        interaction.copy(
+            launcherRecovery = currentLauncherRecovery,
+            launcherShortcutReplacement = currentLauncherShortcutReplacement,
+        )
     }
 
     private val setupState = combine(
@@ -168,7 +225,10 @@ class DashboardViewModel @Inject constructor(
     ) { connection, interaction, setup ->
         DashboardUiState(
             settings = connection.settings,
+            isSettingsLoaded = connection.settingsLoaded,
+            isProjectivyInstalled = isProjectivyInstalled,
             entities = connection.entities,
+            areInitialStatesLoaded = connection.initialStatesLoaded,
             screen = interaction.screen,
             details = interaction.details,
             pendingEntityIds = interaction.pendingEntityIds,
@@ -178,6 +238,9 @@ class DashboardViewModel @Inject constructor(
             isForeground = setup.foreground,
             isSavingConnection = setup.savingConnection,
             connectionStatus = connection.status,
+            focusRequest = interaction.focusRequest,
+            launcherRecovery = interaction.launcherRecovery,
+            launcherShortcutReplacement = interaction.launcherShortcutReplacement,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 
@@ -221,6 +284,7 @@ class DashboardViewModel @Inject constructor(
             val previousSettings = latestSettings
             activeSession = null
             homeAssistantRepository.stop()
+            cachedEntities = emptyMap()
             savingConnection.value = true
             try {
                 val validation = try {
@@ -250,6 +314,7 @@ class DashboardViewModel @Inject constructor(
         connectionValidationJob = null
         homeAssistantRepository.stop()
         activeSession = null
+        cachedEntities = emptyMap()
         latestSettings.channelId?.let { removeHomeChannel(it) }
         settingsRepository.clearConnection()
         details.value = null
@@ -265,12 +330,42 @@ class DashboardViewModel @Inject constructor(
         screen.value = AppScreen.ConnectionSetup
     }
     fun openDiagnostics() { screen.value = AppScreen.Diagnostics }
-    fun closeScreen() { screen.value = AppScreen.Dashboard }
+    fun closeScreen() {
+        screen.value = AppScreen.Dashboard
+        launcherShortcutReplacement.value = null
+        restoreDashboardFocus()
+    }
     fun dismissError() { error.value = null }
 
     fun addTile(entity: HaEntity) = viewModelScope.launch {
-        if (latestSettings.tiles.any { it.entityId == entity.entityId }) return@launch
-        settingsRepository.saveTiles(latestSettings.tiles + TileConfiguration(entity.entityId, latestSettings.tiles.size))
+        val replacement = launcherShortcutReplacement.value
+        val isAlreadyConfigured = latestSettings.tiles.any { it.entityId == entity.entityId }
+        val tiles = if (isAlreadyConfigured) {
+            latestSettings.tiles
+        } else {
+            latestSettings.tiles + TileConfiguration(entity.entityId, latestSettings.tiles.size)
+        }
+        if (replacement == null) {
+            if (isAlreadyConfigured) return@launch
+            settingsRepository.saveTiles(tiles)
+            return@launch
+        }
+
+        val remainingShortcuts = latestSettings.homeShortcuts.filterNot {
+            it.entityId == replacement.staleEntityId || it.entityId == entity.entityId
+        }
+        if (remainingShortcuts.size >= 4) {
+            error.value = "Home screen already has four shortcuts. Remove one to continue."
+            return@launch
+        }
+        val behavior = replacement.behavior.takeIf { it != ShortcutBehavior.DETAILS || supportsDetails(entity) }
+            ?: ShortcutBehavior.FOCUS
+        settingsRepository.saveTiles(tiles)
+        val shortcuts = remainingShortcuts + ShortcutConfiguration(entity.entityId, behavior)
+        settingsRepository.saveShortcuts(shortcuts)
+        publishShortcutsIfEnabled(shortcuts)
+        launcherShortcutReplacement.value = null
+        focusEntity(entity.entityId)
     }
 
     fun removeTile(entityId: String) = viewModelScope.launch {
@@ -301,7 +396,48 @@ class DashboardViewModel @Inject constructor(
     fun focusEntity(entityId: String) {
         screen.value = AppScreen.Dashboard
         details.value = null
+        launcherRecovery.value = null
+        nextFocusRequestSequence += 1
+        focusRequest.value = FocusRequest(entityId, nextFocusRequestSequence)
         saveFocus(entityId)
+    }
+
+    fun acknowledgeFocusRequest(sequence: Long) {
+        if (focusRequest.value?.sequence == sequence) focusRequest.value = null
+    }
+
+    fun showMissingLauncherShortcut(entityId: String = "", behavior: String? = null) {
+        screen.value = AppScreen.Dashboard
+        details.value = null
+        focusRequest.value = null
+        launcherShortcutReplacement.value = null
+        val shortcutBehavior = when (behavior?.lowercase()) {
+            "toggle" -> ShortcutBehavior.TOGGLE
+            "details" -> ShortcutBehavior.DETAILS
+            else -> ShortcutBehavior.FOCUS
+        }
+        launcherRecovery.value = LauncherRecovery(
+            message = "This launcher shortcut is no longer available.",
+            staleEntityId = entityId,
+            behavior = shortcutBehavior,
+        )
+    }
+
+    fun dismissLauncherRecovery() {
+        launcherRecovery.value = null
+        launcherShortcutReplacement.value = null
+        restoreDashboardFocus()
+    }
+
+    fun openLauncherRecoveryControls() {
+        launcherRecovery.value?.takeIf { it.staleEntityId.isNotBlank() }?.let { recovery ->
+            launcherShortcutReplacement.value = LauncherShortcutReplacement(
+                staleEntityId = recovery.staleEntityId,
+                behavior = recovery.behavior,
+            )
+        }
+        launcherRecovery.value = null
+        openTileManager()
     }
 
     fun performPrimaryAction(entity: HaEntity) {
@@ -316,6 +452,15 @@ class DashboardViewModel @Inject constructor(
 
     fun toggle(entity: HaEntity) = execute(ControlAction.Toggle(entity))
 
+    fun supportsDetails(entity: HaEntity): Boolean =
+        entity.capabilities().canSetLevel ||
+            entity.domain == "climate" ||
+            entity.domain == "cover" ||
+            entity.domain == "alarm_control_panel" ||
+            entity.capabilities().canSetNumber ||
+            entity.capabilities().canSelectOption ||
+            entity.capabilities().canSetText
+
     fun openDetails(entity: HaEntity) {
         details.value = when {
             entity.capabilities().canSetLevel -> DetailState.Level(entity, entity.levelPercent() ?: 50)
@@ -329,7 +474,20 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun closeDetails() { details.value = null }
+    fun openShortcutDetails(entity: HaEntity) {
+        screen.value = AppScreen.Dashboard
+        details.value = null
+        focusRequest.value = null
+        launcherRecovery.value = null
+        openDetails(entity)
+        if (details.value == null) focusEntity(entity.entityId)
+    }
+
+    fun closeDetails() {
+        val entityId = details.value?.entityId()
+        details.value = null
+        entityId?.let(::focusEntity)
+    }
 
     fun stageLevel(percent: Int) {
         details.value = (details.value as? DetailState.Level)?.copy(stagedPercent = percent.coerceIn(0, 100))
@@ -338,7 +496,7 @@ class DashboardViewModel @Inject constructor(
     fun applyLevel() {
         val detail = details.value as? DetailState.Level ?: return
         execute(ControlAction.SetLevel(detail.entity, detail.stagedPercent))
-        details.value = null
+        closeDetails()
     }
 
     fun setClimateMode(entity: HaEntity, mode: String) {
@@ -371,7 +529,7 @@ class DashboardViewModel @Inject constructor(
             return
         }
         execute(ControlAction.CoverCommand(detail.entity, command, position))
-        details.value = null
+        closeDetails()
     }
 
     fun stageCoverPosition(position: Int) {
@@ -387,7 +545,7 @@ class DashboardViewModel @Inject constructor(
         val detail = details.value as? DetailState.Cover ?: return
         val command = detail.pendingCommand ?: return
         execute(ControlAction.CoverCommand(detail.entity, command, detail.pendingPosition))
-        details.value = null
+        closeDetails()
     }
 
     fun cancelSecureCover() {
@@ -407,14 +565,14 @@ class DashboardViewModel @Inject constructor(
     fun applyNumberValue() {
         val detail = details.value as? DetailState.Number ?: return
         execute(ControlAction.SetNumberValue(detail.entity, detail.stagedValue))
-        details.value = null
+        closeDetails()
     }
 
     fun selectOption(option: String) {
         val detail = details.value as? DetailState.Select ?: return
         if (option !in detail.entity.selectOptions()) return
         execute(ControlAction.SelectOption(detail.entity, option))
-        details.value = null
+        closeDetails()
     }
 
     fun updateTextValue(value: String) {
@@ -424,7 +582,7 @@ class DashboardViewModel @Inject constructor(
     fun applyTextValue() {
         val detail = details.value as? DetailState.Text ?: return
         execute(ControlAction.SetTextValue(detail.entity, detail.stagedValue))
-        details.value = null
+        closeDetails()
     }
 
     fun armAlarm(mode: String) {
@@ -438,7 +596,7 @@ class DashboardViewModel @Inject constructor(
             return
         }
         execute(ControlAction.ArmAlarm(detail.entity, mode, detail.disarmCode.ifBlank { null }))
-        details.value = null
+        closeDetails()
     }
 
     fun disarmAlarm() {
@@ -447,7 +605,7 @@ class DashboardViewModel @Inject constructor(
             error.value = "Enter the Home Assistant alarm code"
         } else {
             execute(ControlAction.DisarmAlarm(detail.entity, detail.disarmCode))
-            details.value = null
+            closeDetails()
         }
     }
 
@@ -510,6 +668,25 @@ class DashboardViewModel @Inject constructor(
     } catch (_: Exception) {
         error.value = "Could not remove the Android TV Home channel"
         false
+    }
+
+    private fun restoreDashboardFocus() {
+        val targetEntityId = latestSettings.lastFocusedEntityId
+            ?.takeIf { it in latestEntities }
+            ?: latestSettings.tiles
+                .sortedBy(TileConfiguration::position)
+                .firstNotNullOfOrNull { tile -> tile.entityId.takeIf { it in latestEntities } }
+        targetEntityId?.let(::focusEntity)
+    }
+
+    private fun DetailState.entityId(): String = when (this) {
+        is DetailState.Level -> entity.entityId
+        is DetailState.Climate -> entity.entityId
+        is DetailState.Cover -> entity.entityId
+        is DetailState.Alarm -> entity.entityId
+        is DetailState.Number -> entity.entityId
+        is DetailState.Select -> entity.entityId
+        is DetailState.Text -> entity.entityId
     }
 
     private fun execute(action: ControlAction) = viewModelScope.launch {

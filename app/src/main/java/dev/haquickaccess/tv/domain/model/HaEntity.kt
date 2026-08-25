@@ -66,6 +66,7 @@ data class ControlCapabilities(
     val alarmCodeRequired: Boolean = false,
 ) {
     val hasPrimaryAction: Boolean get() = canToggle || canActivate || canRun || canPress
+    val isQuickControl: Boolean get() = kind != ControlKind.UNSUPPORTED
 }
 
 fun HaEntity.capabilities(): ControlCapabilities = when (domain) {

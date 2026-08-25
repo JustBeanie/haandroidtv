@@ -38,6 +38,7 @@ sealed interface ConnectionStatus {
 
 interface HomeAssistantGateway {
     val entities: StateFlow<Map<String, HaEntity>>
+    val initialStatesLoaded: StateFlow<Boolean>
     val status: StateFlow<ConnectionStatus>
     suspend fun connect(baseUrl: String, token: String): Result<Unit>
     suspend fun call(service: ServiceCall): Result<Unit>
@@ -59,6 +60,9 @@ class HomeAssistantWebSocket private constructor(
 
     private val _entities = MutableStateFlow<Map<String, HaEntity>>(emptyMap())
     override val entities: StateFlow<Map<String, HaEntity>> = _entities.asStateFlow()
+
+    private val _initialStatesLoaded = MutableStateFlow(false)
+    override val initialStatesLoaded: StateFlow<Boolean> = _initialStatesLoaded.asStateFlow()
 
     private val _status = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Disconnected)
     override val status: StateFlow<ConnectionStatus> = _status.asStateFlow()
@@ -105,6 +109,7 @@ class HomeAssistantWebSocket private constructor(
         currentToken = null
         initialStatesRequestId = null
         _entities.value = emptyMap()
+        _initialStatesLoaded.value = false
         authResult?.complete(Result.failure(IllegalStateException("Disconnected")))
         authResult = null
         pending.values.forEach { it.complete(Result.failure(IllegalStateException("Disconnected"))) }
@@ -139,6 +144,7 @@ class HomeAssistantWebSocket private constructor(
             .mapNotNull(::entityFromJson)
             .filter(::isSupportedControl)
             .associateBy(HaEntity::entityId)
+        _initialStatesLoaded.value = true
     }
 
     private fun updateState(state: JsonObject?) {
@@ -191,6 +197,7 @@ class HomeAssistantWebSocket private constructor(
                     currentToken = null
                     initialStatesRequestId = null
                     _entities.value = emptyMap()
+                    _initialStatesLoaded.value = false
                     pending.values.forEach { it.complete(Result.failure(exception)) }
                     pending.clear()
                     socket = null
@@ -213,6 +220,7 @@ class HomeAssistantWebSocket private constructor(
             currentToken = null
             initialStatesRequestId = null
             _entities.value = emptyMap()
+            _initialStatesLoaded.value = false
             _status.value = ConnectionStatus.Failed(message)
             authResult?.complete(Result.failure(t))
             authResult = null
@@ -226,6 +234,7 @@ class HomeAssistantWebSocket private constructor(
             currentToken = null
             initialStatesRequestId = null
             _entities.value = emptyMap()
+            _initialStatesLoaded.value = false
             val failure = IllegalStateException(reason.ifBlank { "Home Assistant closed the connection" })
             authResult?.complete(Result.failure(failure))
             authResult = null

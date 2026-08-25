@@ -7,6 +7,7 @@ import dev.haquickaccess.tv.data.SettingsStore
 import dev.haquickaccess.tv.domain.model.ControlAction
 import dev.haquickaccess.tv.domain.model.HaEntity
 import dev.haquickaccess.tv.domain.model.ShortcutBehavior
+import dev.haquickaccess.tv.domain.model.ShortcutConfiguration
 import dev.haquickaccess.tv.domain.model.TileConfiguration
 import dev.haquickaccess.tv.platform.HomeChannelGateway
 import kotlinx.coroutines.Dispatchers
@@ -512,6 +513,127 @@ class DashboardViewModelTest {
     }
 
     @Test
+    fun `quick launch focus requests are explicit and acknowledged once`() = runTest {
+        val lamp = entity("light.den", "off")
+        val settings = FakeSettingsStore(AppSettings(tiles = listOf(TileConfiguration(lamp.entityId, 0))))
+        val viewModel = viewModel(settings = settings, session = FakeSession(mapOf(lamp.entityId to lamp)))
+        observe(viewModel)
+
+        viewModel.focusEntity(lamp.entityId)
+
+        val firstRequest = requireNotNull(viewModel.uiState.value.focusRequest)
+        assertEquals(lamp.entityId, firstRequest.entityId)
+        assertEquals(lamp.entityId, settings.value.lastFocusedEntityId)
+
+        viewModel.acknowledgeFocusRequest(firstRequest.sequence)
+        assertNull(viewModel.uiState.value.focusRequest)
+
+        viewModel.focusEntity(lamp.entityId)
+        assertEquals(firstRequest.sequence + 1, viewModel.uiState.value.focusRequest?.sequence)
+    }
+
+    @Test
+    fun `details shortcuts focus controls without a details panel`() = runTest {
+        val switch = entity("switch.bedside", "off")
+        val light = entity("light.bedside", "on", attributes = mapOf("brightness" to JsonPrimitive(125)))
+        val settings = FakeSettingsStore(
+            AppSettings(
+                tiles = listOf(
+                    TileConfiguration(switch.entityId, 0),
+                    TileConfiguration(light.entityId, 1),
+                ),
+            ),
+        )
+        val viewModel = viewModel(
+            settings = settings,
+            session = FakeSession(mapOf(switch.entityId to switch, light.entityId to light)),
+        )
+        observe(viewModel)
+
+        assertFalse(viewModel.supportsDetails(switch))
+        viewModel.openShortcutDetails(switch)
+
+        assertNull(viewModel.uiState.value.details)
+        assertEquals(switch.entityId, viewModel.uiState.value.focusRequest?.entityId)
+
+        assertTrue(viewModel.supportsDetails(light))
+        viewModel.openShortcutDetails(light)
+
+        assertIs<DetailState.Level>(viewModel.uiState.value.details)
+        assertNull(viewModel.uiState.value.focusRequest)
+    }
+
+    @Test
+    fun `missing launcher shortcut opens recoverable control management`() = runTest {
+        val viewModel = viewModel()
+        observe(viewModel)
+
+        viewModel.showMissingLauncherShortcut()
+
+        assertEquals(AppScreen.Dashboard, viewModel.uiState.value.screen)
+        assertNull(viewModel.uiState.value.details)
+        assertNull(viewModel.uiState.value.focusRequest)
+        assertEquals("This launcher shortcut is no longer available.", viewModel.uiState.value.launcherRecovery?.message)
+
+        viewModel.openLauncherRecoveryControls()
+
+        assertNull(viewModel.uiState.value.launcherRecovery)
+        assertEquals(AppScreen.ManageTiles, viewModel.uiState.value.screen)
+
+        viewModel.closeScreen()
+
+        assertEquals(AppScreen.Dashboard, viewModel.uiState.value.screen)
+        assertNull(viewModel.uiState.value.launcherShortcutReplacement)
+    }
+
+    @Test
+    fun `stale launcher shortcut replacement adds a tile and republishes its action`() = runTest {
+        val replacement = entity("light.reading", "off")
+        val settings = FakeSettingsStore(
+            AppSettings(
+                homeShortcuts = listOf(ShortcutConfiguration("light.removed", ShortcutBehavior.TOGGLE)),
+                homeChannelEnabled = true,
+                channelId = 9L,
+            ),
+        )
+        val channel = FakeChannelGateway()
+        val viewModel = viewModel(
+            settings = settings,
+            session = FakeSession(mapOf(replacement.entityId to replacement)),
+            channel = channel,
+        )
+        observe(viewModel)
+
+        viewModel.showMissingLauncherShortcut("light.removed", "toggle")
+        viewModel.openLauncherRecoveryControls()
+        viewModel.addTile(replacement)
+        runCurrent()
+
+        assertEquals(listOf(replacement.entityId), settings.value.tiles.map(TileConfiguration::entityId))
+        assertEquals(
+            listOf(ShortcutConfiguration(replacement.entityId, ShortcutBehavior.TOGGLE)),
+            settings.value.homeShortcuts,
+        )
+        assertEquals(AppScreen.Dashboard, viewModel.uiState.value.screen)
+        assertEquals(replacement.entityId, viewModel.uiState.value.focusRequest?.entityId)
+        assertEquals(1, channel.creates)
+    }
+
+    @Test
+    fun `closing details restores focus to the originating dashboard tile`() = runTest {
+        val lamp = entity("light.den", "on", attributes = mapOf("brightness" to JsonPrimitive(128)))
+        val settings = FakeSettingsStore(AppSettings(tiles = listOf(TileConfiguration(lamp.entityId, 0))))
+        val viewModel = viewModel(settings = settings, session = FakeSession(mapOf(lamp.entityId to lamp)))
+        observe(viewModel)
+
+        viewModel.openDetails(lamp)
+        viewModel.closeDetails()
+
+        assertNull(viewModel.uiState.value.details)
+        assertEquals(lamp.entityId, viewModel.uiState.value.focusRequest?.entityId)
+    }
+
+    @Test
     fun `navigation removal focus channel refresh and errors keep state consistent`() = runTest {
         val first = entity("light.first", "off")
         val second = entity("switch.second", "off")
@@ -762,6 +884,36 @@ class DashboardViewModelTest {
         assertFalse(DashboardUiState(settings = AppSettings(baseUrl = "https://ha.example")).isConfigured)
         assertFalse(DashboardUiState(settings = AppSettings(tokenEnvelope = "saved")).isConfigured)
         assertTrue(DashboardUiState(settings = AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "saved")).isConfigured)
+        assertFalse(DashboardUiState().isSettingsLoaded)
+    }
+
+    @Test
+    fun `dashboard retains the last live tile snapshot while reconnecting`() = runTest {
+        val lamp = entity("light.den", "on")
+        val session = FakeSession(mapOf(lamp.entityId to lamp))
+        val settings = FakeSettingsStore(
+            AppSettings(
+                baseUrl = "https://ha.example",
+                tokenEnvelope = "saved-token",
+                tiles = listOf(TileConfiguration(lamp.entityId, 0)),
+            ),
+        )
+        val viewModel = viewModel(settings, session)
+        observe(viewModel)
+
+        session.disconnectAndClearStates()
+        runCurrent()
+
+        assertEquals(listOf(lamp), viewModel.uiState.value.tiles)
+        assertFalse(viewModel.uiState.value.areInitialStatesLoaded)
+    }
+
+    @Test
+    fun `launcher compatibility state reports Projectivy when available`() = runTest {
+        val viewModel = viewModel(channel = FakeChannelGateway(projectivyInstalled = true))
+        observe(viewModel)
+
+        assertTrue(viewModel.uiState.value.isProjectivyInstalled)
     }
 
     private fun TestScope.observe(viewModel: DashboardViewModel) {
@@ -821,8 +973,10 @@ class DashboardViewModelTest {
 
     private class FakeSession(initialEntities: Map<String, HaEntity> = emptyMap()) : HomeAssistantSession {
         private val mutableEntities = MutableStateFlow(initialEntities)
+        private val mutableInitialStatesLoaded = MutableStateFlow(true)
         private val mutableStatus = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Disconnected)
         override val entities: StateFlow<Map<String, HaEntity>> = mutableEntities.asStateFlow()
+        override val initialStatesLoaded: StateFlow<Boolean> = mutableInitialStatesLoaded.asStateFlow()
         override val status: StateFlow<ConnectionStatus> = mutableStatus.asStateFlow()
         val actions = mutableListOf<ControlAction>()
         val starts = mutableListOf<Pair<String, String>>()
@@ -850,13 +1004,22 @@ class DashboardViewModelTest {
             mutableStatus.value = ConnectionStatus.Disconnected
         }
 
+        fun disconnectAndClearStates() {
+            mutableEntities.value = emptyMap()
+            mutableInitialStatesLoaded.value = false
+            mutableStatus.value = ConnectionStatus.Connecting
+        }
+
         override suspend fun execute(action: ControlAction): Result<Unit> {
             actions += action
             return pendingAction?.await() ?: result
         }
     }
 
-    private class FakeChannelGateway(private val channelId: Long = 1L) : HomeChannelGateway {
+    private class FakeChannelGateway(
+        private val channelId: Long = 1L,
+        private val projectivyInstalled: Boolean = false,
+    ) : HomeChannelGateway {
         var creates = 0
         val removed = mutableListOf<Long>()
         var createFailure: Exception? = null
@@ -872,5 +1035,7 @@ class DashboardViewModelTest {
             removeFailure?.let { throw it }
             removed += channelId
         }
+
+        override fun isProjectivyInstalled(): Boolean = projectivyInstalled
     }
 }

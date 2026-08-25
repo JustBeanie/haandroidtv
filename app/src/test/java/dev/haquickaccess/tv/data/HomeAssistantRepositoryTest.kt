@@ -109,8 +109,10 @@ class HomeAssistantRepositoryTest {
         private val failureRetryable: Boolean = true,
     ) : HomeAssistantGateway {
         private val mutableEntities = MutableStateFlow<Map<String, HaEntity>>(emptyMap())
+        private val mutableInitialStatesLoaded = MutableStateFlow(true)
         private val mutableStatus = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Disconnected)
         override val entities: StateFlow<Map<String, HaEntity>> = mutableEntities.asStateFlow()
+        override val initialStatesLoaded: StateFlow<Boolean> = mutableInitialStatesLoaded.asStateFlow()
         override val status: StateFlow<ConnectionStatus> = mutableStatus.asStateFlow()
         var connectCalls = 0
         var disconnectCalls = 0
