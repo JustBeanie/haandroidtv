@@ -1,10 +1,16 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="320dp"
-    android:height="180dp"
-    android:viewportWidth="320"
-    android:viewportHeight="180">
-    <path android:fillColor="#111111" android:pathData="M0,0h320v180h-320z" />
-    <path android:fillColor="#03A9F4" android:pathData="M26,35h78v78h-78z" />
-    <path android:fillColor="#FFB74D" android:pathData="M65,50a16,16 0,1 0,0 32a16,16 0,1 0,0 -32M58,92h14v17h-14z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M126,56h166v10h-166zM126,79h116v9h-116zM126,98h144v9h-144z" />
-</vector>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <bitmap
+            android:src="@drawable/ambient_home_banner"
+            android:gravity="fill"
+            android:tileMode="disabled" />
+    </item>
+    <item android:left="28dp" android:top="27dp" android:right="28dp" android:bottom="27dp">
+        <vector android:width="264dp" android:height="126dp" android:viewportWidth="264" android:viewportHeight="126">
+            <path android:fillColor="#DDF6F8FF" android:pathData="M0,42h264v84h-264z" />
+            <path android:fillColor="#FF59D5FF" android:pathData="M0,0h4v28h-4z" />
+            <path android:fillColor="#FFF6F8FF" android:pathData="M14,4h170v8h-170zM14,19h112v5h-112z" />
+            <path android:fillColor="#FF12233A" android:pathData="M14,52h236v12h-236zM14,76h184v8h-184zM14,94h218v8h-218z" />
+        </vector>
+    </item>
+</layer-list>

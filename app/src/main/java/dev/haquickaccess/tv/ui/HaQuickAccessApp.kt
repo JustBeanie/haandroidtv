@@ -100,17 +100,18 @@ import dev.haquickaccess.tv.domain.model.selectOptions
 import kotlin.math.roundToInt
 import java.util.Locale
 
-private val HaBackground = Color(0xFF111111)
-private val HaSurface = Color(0xFF1C1C1C)
-private val HaSurfaceFocused = Color(0xFF242424)
-private val HaBorder = Color(0xFF303030)
-private val HaBlue = Color(0xFF03A9F4)
+private val HaBackground = Color(0xFF080D19)
+private val HaSurface = Color(0xFF121B2C)
+private val HaSurfaceFocused = Color(0xFF1A2942)
+private val HaBorder = Color(0xFF263753)
+private val HaBlue = Color(0xFF59D5FF)
 private val HaGreen = Color(0xFF4CAF50)
 private val HaAmber = Color(0xFFFF9800)
-private val HaCyan = Color(0xFF8BCFF5)
-private val HaRed = Color(0xFFF44336)
-private val HaText = Color(0xFFF4F6F9)
-private val HaMuted = Color(0xFFAEB7C4)
+private val HaCyan = Color(0xFF9CE7FF)
+private val HaRed = Color(0xFFFF6B78)
+private val HaText = Color(0xFFF6F8FF)
+private val HaMuted = Color(0xFFAFBED4)
+private val HaViolet = Color(0xFFAA9CFF)
 
 @Composable
 fun HaQuickAccessApp(
@@ -298,14 +299,15 @@ private fun DashboardScreen(state: DashboardUiState, onEvent: DashboardViewModel
         }
     }
     Column(Modifier.fillMaxSize()) {
-        Header(
+        DashboardHero(
             status = state.connectionStatus,
+            controlCount = state.tiles.size,
             onSettings = onEvent::openSettings,
             focusRequester = settingsFocusRequester,
             downFocusRequester = dashboardFocusRequester,
         )
         contextTile?.let { FocusedControlContext(it, it.entityId in state.pendingEntityIds) }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(24.dp))
         if (state.tiles.isEmpty()) {
             EmptyDashboard(
                 onManage = onEvent::openTileManager,
@@ -314,6 +316,12 @@ private fun DashboardScreen(state: DashboardUiState, onEvent: DashboardViewModel
                 upFocusRequester = settingsFocusRequester,
             )
         } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                HaText("QUICK CONTROLS", 12.sp, HaCyan)
+                Spacer(Modifier.width(10.dp))
+                HaText("${state.tiles.size} pinned", 12.sp, HaMuted)
+            }
+            Spacer(Modifier.height(12.dp))
             BoxWithConstraints(Modifier.weight(1f)) {
                 val columnCount = when {
                     maxWidth >= 1_500.dp -> 5
@@ -351,29 +359,53 @@ private fun DashboardScreen(state: DashboardUiState, onEvent: DashboardViewModel
                 }
             }
         }
-        HaText("D-pad to move  •  Select to control  •  Hold Select for details", 14.sp, HaMuted)
+        Spacer(Modifier.height(10.dp))
+        HaText("D-pad to move   •   Select to control   •   Hold Select for details", 14.sp, HaMuted)
     }
 }
 
 @Composable
-private fun Header(
+private fun DashboardHero(
     status: ConnectionStatus,
+    controlCount: Int,
     onSettings: () -> Unit,
     focusRequester: FocusRequester,
     downFocusRequester: FocusRequester,
 ) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        HaText("HA Quick Access", 29.sp)
-        Spacer(Modifier.weight(1f))
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(HaSurface.copy(alpha = .72f), RoundedCornerShape(24.dp))
+            .border(1.dp, HaBorder, RoundedCornerShape(24.dp))
+            .padding(horizontal = 22.dp, vertical = 17.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(48.dp).background(HaBlue.copy(alpha = .14f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Outlined.Lightbulb, null, Modifier.size(26.dp), HaBlue)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            HaText("HA Quick Access", 28.sp)
+            Spacer(Modifier.height(2.dp))
+            HaText("$controlCount controls ready for your remote", 14.sp, HaMuted)
+        }
         val (label, color) = when (status) {
             is ConnectionStatus.Connected -> "Home connected" to HaBlue
             is ConnectionStatus.Connecting -> "Connecting" to HaAmber
             is ConnectionStatus.Failed -> "Connection problem" to HaRed
             ConnectionStatus.Disconnected -> "Offline" to HaMuted
         }
-        Box(Modifier.size(9.dp).background(color, CircleShape))
-        Spacer(Modifier.width(8.dp))
-        HaText(label, 14.sp, HaMuted)
+        Row(
+            Modifier.background(color.copy(alpha = .12f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(8.dp).background(color, CircleShape))
+            Spacer(Modifier.width(7.dp))
+            HaText(label, 13.sp, color)
+        }
         Spacer(Modifier.width(16.dp))
         HeaderSettingsButton(onSettings, focusRequester, downFocusRequester)
     }
@@ -437,9 +469,9 @@ private fun FocusedControlContext(entity: HaEntity, pending: Boolean) {
         Modifier
             .fillMaxWidth()
             .padding(top = 14.dp)
-            .background(HaSurface.copy(alpha = .72f), RoundedCornerShape(12.dp))
-            .border(1.dp, HaBorder, RoundedCornerShape(12.dp))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .background(HaSurface.copy(alpha = .72f), RoundedCornerShape(16.dp))
+            .border(1.dp, HaBorder, RoundedCornerShape(16.dp))
+            .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(tileIcon(entity.capabilities().kind), null, Modifier.size(22.dp), HaCyan)
@@ -539,7 +571,7 @@ private fun HomeAssistantTile(
         modifier = Modifier
             .then(if (upFocusRequester == null) Modifier else Modifier.focusProperties { up = upFocusRequester })
             .focusRequester(activeFocusRequester)
-            .height(128.dp)
+            .height(142.dp)
             .fillMaxWidth()
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused(entity) }
             .onPreviewKeyEvent { event ->
@@ -570,8 +602,8 @@ private fun HomeAssistantTile(
                 scaleY = focusScale
                 shadowElevation = if (focused) 16.dp.toPx() else 0f
             }
-            .background(if (focused) HaSurfaceFocused else HaSurface, RoundedCornerShape(14.dp))
-            .border(if (focused) 3.dp else 1.dp, if (focused) HaBlue else HaBorder, RoundedCornerShape(14.dp))
+            .background(if (focused) HaSurfaceFocused else HaSurface, RoundedCornerShape(20.dp))
+            .border(if (focused) 3.dp else 1.dp, if (focused) HaBlue else HaBorder, RoundedCornerShape(20.dp))
             .semantics { contentDescription = "${entity.name}, $stateLabel"; role = Role.Button }
             .combinedClickable(
                 // A pending command must not remove the currently focused card
@@ -581,7 +613,7 @@ private fun HomeAssistantTile(
                 onClick = { if (!pending) onClick() },
                 onLongClick = onLongClick,
             )
-            .padding(16.dp),
+            .padding(18.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Icon(
@@ -605,21 +637,67 @@ private fun HomeAssistantTile(
 @Composable
 private fun SettingsScreen(state: DashboardUiState, onEvent: DashboardViewModel) {
     Column(Modifier.fillMaxSize()) {
-        HaText("Settings", 30.sp)
-        Spacer(Modifier.height(20.dp))
+        SettingsHero(state)
+        Spacer(Modifier.height(22.dp))
+        HaText("DASHBOARD", 12.sp, HaCyan)
+        Spacer(Modifier.height(8.dp))
         SettingRow(
             title = "Manage controls",
-            subtitle = "Add, remove, and reorder dashboard tiles",
+            subtitle = "Choose, arrange, and tune your quick controls",
             onClick = onEvent::openTileManager,
             requestInitialFocus = true,
         )
-        SettingRow("Home screen shortcuts", "Configure up to four Android TV launcher shortcuts", onEvent::openShortcutManager)
+        SettingRow("Home screen shortcuts", "Pin up to four favorite actions to Android TV Home", onEvent::openShortcutManager)
+        Spacer(Modifier.height(8.dp))
+        HaText("SYSTEM", 12.sp, HaViolet)
+        Spacer(Modifier.height(8.dp))
         SettingRow("Connection", state.settings.baseUrl.orEmpty(), onEvent::openConnectionSetup)
-        SettingRow("Diagnostics", "Connection, cache, and launcher-channel status", onEvent::openDiagnostics)
-        Spacer(Modifier.height(18.dp))
+        SettingRow("Diagnostics", "Connection health, cache, and TV Home status", onEvent::openDiagnostics)
+        Spacer(Modifier.height(10.dp))
         HaButton("Forget Home Assistant", onEvent::clearConnection, destructive = true)
         Spacer(Modifier.weight(1f))
         HaButton("Back", onEvent::closeScreen)
+    }
+}
+
+@Composable
+private fun SettingsHero(state: DashboardUiState) {
+    val connection = when (state.connectionStatus) {
+        is ConnectionStatus.Connected -> "Connected"
+        is ConnectionStatus.Connecting -> "Connecting"
+        is ConnectionStatus.Failed -> "Needs attention"
+        ConnectionStatus.Disconnected -> "Offline"
+    }
+    val color = when (state.connectionStatus) {
+        is ConnectionStatus.Connected -> HaGreen
+        is ConnectionStatus.Connecting -> HaAmber
+        is ConnectionStatus.Failed -> HaRed
+        ConnectionStatus.Disconnected -> HaMuted
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(HaSurface.copy(alpha = .76f), RoundedCornerShape(24.dp))
+            .border(1.dp, HaBorder, RoundedCornerShape(24.dp))
+            .padding(22.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            HaText("Settings", 32.sp)
+            Spacer(Modifier.height(4.dp))
+            HaText("Your home, tailored for TV.", 16.sp, HaMuted)
+        }
+        Column(
+            Modifier.background(color.copy(alpha = .12f), RoundedCornerShape(16.dp)).padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            HaText("HOME ASSISTANT", 10.sp, HaMuted)
+            Spacer(Modifier.height(3.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(7.dp).background(color, CircleShape))
+                Spacer(Modifier.width(7.dp))
+                HaText(connection, 14.sp, color)
+            }
+        }
     }
 }
 
@@ -1349,15 +1427,20 @@ private fun SettingRow(
                 scaleY = focusScale
                 shadowElevation = if (focused) 12.dp.toPx() else 0f
             }
-            .heightIn(min = 76.dp)
-            .background(if (focused) HaSurfaceFocused else HaSurface, RoundedCornerShape(12.dp))
-            .border(if (focused) 2.dp else 1.dp, if (focused) HaBlue else HaBorder, RoundedCornerShape(12.dp))
+            .heightIn(min = 82.dp)
+            .background(if (focused) HaSurfaceFocused else HaSurface, RoundedCornerShape(18.dp))
+            .border(if (focused) 2.dp else 1.dp, if (focused) HaBlue else HaBorder, RoundedCornerShape(18.dp))
             .clickable(onClick = onClick)
-            .padding(18.dp),
+            .padding(horizontal = 20.dp, vertical = 17.dp),
     ) {
-        HaText(title, 18.sp)
-        Spacer(Modifier.height(4.dp))
-        HaText(subtitle, 14.sp, HaMuted)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                HaText(title, 18.sp)
+                Spacer(Modifier.height(4.dp))
+                HaText(subtitle, 14.sp, HaMuted)
+            }
+            HaText("›", 30.sp, if (focused) HaBlue else HaMuted)
+        }
     }
     Spacer(Modifier.height(12.dp))
     LaunchedEffect(requestInitialFocus) {
