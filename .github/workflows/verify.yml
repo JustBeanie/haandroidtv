@@ -46,12 +46,16 @@ jobs:
       - name: Run Android TV smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 36
+          api-level: 34
           target: android-tv
           arch: x86_64
           profile: tv_1080p
+          disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-          script: ./gradlew :app:connectedDebugAndroidTest
+          script: |
+            adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+            timeout 120 bash -c 'until adb shell service check package 2>/dev/null | grep -q "found"; do sleep 2; done'
+            ./gradlew :app:connectedDebugAndroidTest
       - uses: actions/upload-artifact@v4
         if: always()
         with:
