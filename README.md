@@ -51,6 +51,19 @@ With this file in place, `./gradlew :app:assembleRelease` produces the
 Shield-installable `app/build/outputs/apk/release/app-release.apk`. Never commit
 the properties file or the keystore.
 
+For Google Play, build the signed Android App Bundle instead:
+
+```text
+./gradlew :app:bundleRelease
+```
+
+The resulting upload artifact is
+`app/build/outputs/bundle/release/app-release.aab`. `bundleRelease` fails early
+when signing credentials are absent, so an unsigned bundle cannot accidentally
+be submitted. See [Play Store release guide](docs/play-store-release.md) for
+the remaining console steps and [privacy policy](docs/privacy-policy.html) for
+the public-policy source.
+
 ## Quality checks
 
 Run the JVM checks with:

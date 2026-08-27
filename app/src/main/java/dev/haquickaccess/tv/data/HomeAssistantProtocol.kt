@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** Pure Home Assistant WebSocket payload and entity mapping functions. */
 object HomeAssistantProtocol {
@@ -29,8 +29,8 @@ object HomeAssistantProtocol {
 
     fun entityFromJson(value: JsonElement): HaEntity? {
         val objectValue = value as? JsonObject ?: return null
-        val id = objectValue["entity_id"]?.jsonPrimitive?.content ?: return null
-        val state = objectValue["state"]?.jsonPrimitive?.content ?: return null
+        val id = (objectValue["entity_id"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val state = (objectValue["state"] as? JsonPrimitive)?.contentOrNull ?: return null
         return HaEntity(id, state, objectValue["attributes"] as? JsonObject ?: JsonObject(emptyMap()))
     }
 }

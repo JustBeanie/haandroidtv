@@ -3,6 +3,7 @@ package dev.haquickaccess.tv.data
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -66,6 +67,54 @@ class HomeAssistantWebSocketTest {
         assertEquals(1008, fixture.socket.closeCode)
     }
 
+    @Test
+    fun `invalid initial state payload fails fast instead of leaving loading stuck`() = runTest {
+        val fixture = Fixture()
+        val connection = async { fixture.gateway.connect("https://ha.example", "token") }
+
+        runCurrent()
+        fixture.authenticate()
+        assertTrue(connection.await().isSuccess)
+        fixture.listener.onMessage(fixture.socket, """{"id":1,"type":"result","success":true,"result":{}}""")
+
+        assertIs<ConnectionStatus.Failed>(fixture.gateway.status.value)
+        assertFalse(fixture.gateway.initialStatesLoaded.value)
+        assertTrue(fixture.socket.cancelled)
+    }
+
+    @Test
+    fun `rejected event subscription resets the session so reconnect can restore updates`() = runTest {
+        val fixture = Fixture()
+        val connection = async { fixture.gateway.connect("https://ha.example", "token") }
+
+        runCurrent()
+        fixture.authenticate()
+        assertTrue(connection.await().isSuccess)
+        fixture.sendStates()
+        fixture.listener.onMessage(
+            fixture.socket,
+            """{"id":2,"type":"result","success":false,"error":{"message":"subscription rejected"}}""",
+        )
+
+        assertIs<ConnectionStatus.Failed>(fixture.gateway.status.value)
+        assertTrue(fixture.gateway.entities.value.isEmpty())
+        assertTrue(fixture.socket.cancelled)
+    }
+
+    @Test
+    fun `failed authentication send reports connection failure immediately`() = runTest {
+        val fixture = Fixture()
+        fixture.socket.sendResult = false
+        val connection = async { fixture.gateway.connect("https://ha.example", "token") }
+
+        runCurrent()
+        fixture.listener.onMessage(fixture.socket, """{"type":"auth_required"}""")
+
+        assertTrue(connection.await().isFailure)
+        assertIs<ConnectionStatus.Failed>(fixture.gateway.status.value)
+        assertTrue(fixture.socket.cancelled)
+    }
+
     private inner class Fixture {
         lateinit var listener: WebSocketListener
         val socket = FakeWebSocket()
@@ -89,12 +138,14 @@ class HomeAssistantWebSocketTest {
 
     private class FakeWebSocket : WebSocket {
         var closeCode: Int? = null
+        var sendResult = true
+        var cancelled = false
 
         override fun request(): Request = Request.Builder().url("https://ha.example/api/websocket").build()
 
         override fun queueSize(): Long = 0
 
-        override fun send(text: String): Boolean = true
+        override fun send(text: String): Boolean = sendResult
 
         override fun send(bytes: okio.ByteString): Boolean = true
 
@@ -103,6 +154,8 @@ class HomeAssistantWebSocketTest {
             return true
         }
 
-        override fun cancel() = Unit
+        override fun cancel() {
+            cancelled = true
+        }
     }
 }

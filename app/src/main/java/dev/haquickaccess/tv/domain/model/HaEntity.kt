@@ -1,35 +1,73 @@
 package dev.haquickaccess.tv.domain.model
 
-import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 data class HaEntity(
     val entityId: String,
     val state: String,
     val attributes: JsonObject = JsonObject(emptyMap()),
 ) {
-    val domain: String get() = entityId.substringBefore('.', "")
-    val name: String get() = attributes["friendly_name"]?.jsonPrimitive?.contentOrNull ?: entityId.substringAfter('.')
-    val unavailable: Boolean get() = state == "unavailable" || (state == "unknown" && !isStatelessAction)
-    val isOn: Boolean get() = state in setOf("on", "open", "opening")
-    val deviceClass: String? get() = attributes.string("device_class")
-    private val isStatelessAction: Boolean get() = domain in setOf("scene", "button", "input_button")
+    val domain: String = entityId.substringBefore('.', "")
+    val name: String = attributes.string("friendly_name") ?: entityId.substringAfter('.')
+    val unavailable: Boolean = state == "unavailable" || (state == "unknown" && !isStatelessAction())
+    val isOn: Boolean = state == "on" || state == "open" || state == "opening"
+    val deviceClass: String? = attributes.string("device_class")
+
+    // Capability inspection reads several JSON attributes and is used repeatedly
+    // while composing every visible tile. HaEntity is immutable, so calculate it
+    // once and safely reuse it across the WebSocket, UI, and TV-provider threads.
+    internal val cachedCapabilities: ControlCapabilities by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        calculateCapabilities()
+    }
 
     fun string(name: String): String? = attributes.string(name)
     fun number(name: String): Double? = attributes.number(name)
     fun strings(name: String): List<String> = attributes.strings(name)
+
+    private fun isStatelessAction(): Boolean = domain == "scene" || domain == "button" || domain == "input_button"
+
+    private fun calculateCapabilities(): ControlCapabilities = when (domain) {
+        "light" -> ControlCapabilities(ControlKind.LIGHT, canToggle = true, canSetLevel = number("brightness") != null)
+        "switch" -> ControlCapabilities(ControlKind.SWITCH, canToggle = true)
+        "fan" -> ControlCapabilities(ControlKind.FAN, canToggle = true, canSetLevel = number("percentage") != null)
+        "input_boolean" -> ControlCapabilities(ControlKind.INPUT_BOOLEAN, canToggle = true)
+        "climate" -> ControlCapabilities(
+            kind = ControlKind.CLIMATE,
+            canToggle = false,
+            canSetClimate = number("temperature") != null || number("min_temp") != null,
+        )
+        "cover" -> ControlCapabilities(
+            kind = ControlKind.COVER,
+            canToggle = false,
+            canSetCoverPosition = number("current_position") != null,
+            requiresSecureCoverConfirmation = deviceClass == "garage" || deviceClass == "gate" || deviceClass == "door",
+        )
+        "alarm_control_panel" -> ControlCapabilities(
+            kind = ControlKind.ALARM,
+            canToggle = false,
+            canArm = alarmArmModes().isNotEmpty(),
+            alarmCodeRequired = (attributes["code_arm_required"] as? JsonPrimitive)?.booleanOrNull ?: true,
+        )
+        "group" -> ControlCapabilities(ControlKind.GROUP, canToggle = true)
+        "scene" -> ControlCapabilities(ControlKind.SCENE, canToggle = false, canActivate = true)
+        "script" -> ControlCapabilities(ControlKind.SCRIPT, canToggle = false, canRun = true)
+        "button", "input_button" -> ControlCapabilities(ControlKind.BUTTON, canToggle = false, canPress = true)
+        "number", "input_number" -> ControlCapabilities(ControlKind.NUMBER, canToggle = false, canSetNumber = true)
+        "select", "input_select" -> ControlCapabilities(ControlKind.SELECT, canToggle = false, canSelectOption = strings("options").isNotEmpty())
+        "text", "input_text" -> ControlCapabilities(ControlKind.TEXT, canToggle = false, canSetText = true)
+        else -> ControlCapabilities(ControlKind.UNSUPPORTED, canToggle = false)
+    }
 }
 
-private fun JsonObject.string(name: String): String? = this[name]?.jsonPrimitive?.contentOrNull
-private fun JsonObject.number(name: String): Double? = this[name]?.jsonPrimitive?.doubleOrNull
+private fun JsonObject.string(name: String): String? = (this[name] as? JsonPrimitive)?.contentOrNull
+private fun JsonObject.number(name: String): Double? = (this[name] as? JsonPrimitive)?.doubleOrNull
 private fun JsonObject.strings(name: String): List<String> =
-    this[name]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
+    (this[name] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
 
 enum class ControlKind {
     LIGHT,
@@ -69,37 +107,7 @@ data class ControlCapabilities(
     val isQuickControl: Boolean get() = kind != ControlKind.UNSUPPORTED
 }
 
-fun HaEntity.capabilities(): ControlCapabilities = when (domain) {
-    "light" -> ControlCapabilities(ControlKind.LIGHT, canToggle = true, canSetLevel = number("brightness") != null)
-    "switch" -> ControlCapabilities(ControlKind.SWITCH, canToggle = true)
-    "fan" -> ControlCapabilities(ControlKind.FAN, canToggle = true, canSetLevel = number("percentage") != null)
-    "input_boolean" -> ControlCapabilities(ControlKind.INPUT_BOOLEAN, canToggle = true)
-    "climate" -> ControlCapabilities(
-        kind = ControlKind.CLIMATE,
-        canToggle = false,
-        canSetClimate = number("temperature") != null || number("min_temp") != null,
-    )
-    "cover" -> ControlCapabilities(
-        kind = ControlKind.COVER,
-        canToggle = false,
-        canSetCoverPosition = number("current_position") != null,
-        requiresSecureCoverConfirmation = deviceClass in setOf("garage", "gate", "door"),
-    )
-    "alarm_control_panel" -> ControlCapabilities(
-        kind = ControlKind.ALARM,
-        canToggle = false,
-        canArm = alarmArmModes().isNotEmpty(),
-        alarmCodeRequired = attributes["code_arm_required"]?.jsonPrimitive?.booleanOrNull ?: true,
-    )
-    "group" -> ControlCapabilities(ControlKind.GROUP, canToggle = true)
-    "scene" -> ControlCapabilities(ControlKind.SCENE, canToggle = false, canActivate = true)
-    "script" -> ControlCapabilities(ControlKind.SCRIPT, canToggle = false, canRun = true)
-    "button", "input_button" -> ControlCapabilities(ControlKind.BUTTON, canToggle = false, canPress = true)
-    "number", "input_number" -> ControlCapabilities(ControlKind.NUMBER, canToggle = false, canSetNumber = true)
-    "select", "input_select" -> ControlCapabilities(ControlKind.SELECT, canToggle = false, canSelectOption = strings("options").isNotEmpty())
-    "text", "input_text" -> ControlCapabilities(ControlKind.TEXT, canToggle = false, canSetText = true)
-    else -> ControlCapabilities(ControlKind.UNSUPPORTED, canToggle = false)
-}
+fun HaEntity.capabilities(): ControlCapabilities = cachedCapabilities
 
 fun HaEntity.actionLabel(): String = when {
     capabilities().canActivate -> "Activate"

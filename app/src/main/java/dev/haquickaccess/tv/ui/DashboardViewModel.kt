@@ -28,6 +28,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -45,6 +46,7 @@ sealed interface AppScreen {
     data object ManageShortcuts : AppScreen
     data object ConnectionSetup : AppScreen
     data object Diagnostics : AppScreen
+    data object Privacy : AppScreen
 }
 
 sealed interface DetailState {
@@ -109,8 +111,12 @@ data class DashboardUiState(
     val launcherShortcutReplacement: LauncherShortcutReplacement? = null,
 ) {
     val isConfigured: Boolean get() = settings.baseUrl != null && settings.tokenEnvelope != null
-    val tiles: List<HaEntity> get() = settings.tiles.sortedBy(TileConfiguration::position).mapNotNull { entities[it.entityId] }
-    val availableEntities: List<HaEntity> get() = entities.values.sortedBy(HaEntity::name)
+    val tiles: List<HaEntity> by lazy(LazyThreadSafetyMode.NONE) {
+        settings.tiles.sortedBy(TileConfiguration::position).mapNotNull { entities[it.entityId] }
+    }
+    val availableEntities: List<HaEntity> by lazy(LazyThreadSafetyMode.NONE) {
+        entities.values.sortedBy(HaEntity::name)
+    }
 }
 
 private data class DashboardConnectionState(
@@ -163,6 +169,8 @@ class DashboardViewModel @Inject constructor(
     private var cachedEntities: Map<String, HaEntity> = emptyMap()
     private var activeSession: Pair<String, String>? = null
     private var connectionValidationJob: Job? = null
+    private var focusSaveJob: Job? = null
+    private var pendingFocusEntityId: String? = null
     private var nextFocusRequestSequence = 0L
     private val isProjectivyInstalled = homeChannelPublisher.isProjectivyInstalled()
 
@@ -266,6 +274,7 @@ class DashboardViewModel @Inject constructor(
         savingConnection.value = false
         setupToken.value = ""
         details.value = (details.value as? DetailState.Alarm)?.copy(disarmCode = "") ?: details.value
+        flushPendingFocus()
     }
 
     fun updateSetupBaseUrl(value: String) { setupBaseUrl.value = value }
@@ -312,6 +321,9 @@ class DashboardViewModel @Inject constructor(
     fun clearConnection() = viewModelScope.launch {
         connectionValidationJob?.cancel()
         connectionValidationJob = null
+        focusSaveJob?.cancel()
+        focusSaveJob = null
+        pendingFocusEntityId = null
         homeAssistantRepository.stop()
         activeSession = null
         cachedEntities = emptyMap()
@@ -330,6 +342,7 @@ class DashboardViewModel @Inject constructor(
         screen.value = AppScreen.ConnectionSetup
     }
     fun openDiagnostics() { screen.value = AppScreen.Diagnostics }
+    fun openPrivacyPolicy() { screen.value = AppScreen.Privacy }
     fun closeScreen() {
         screen.value = AppScreen.Dashboard
         launcherShortcutReplacement.value = null
@@ -391,7 +404,16 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun saveFocus(entityId: String) = viewModelScope.launch { settingsRepository.saveLastFocusedEntity(entityId) }
+    fun saveFocus(entityId: String) {
+        if (entityId == pendingFocusEntityId) return
+        if (focusSaveJob == null && entityId == latestSettings.lastFocusedEntityId) return
+        pendingFocusEntityId = entityId
+        focusSaveJob?.cancel()
+        focusSaveJob = viewModelScope.launch {
+            delay(FOCUS_SAVE_DEBOUNCE_MS)
+            persistPendingFocus()
+        }
+    }
 
     fun focusEntity(entityId: String) {
         screen.value = AppScreen.Dashboard
@@ -611,7 +633,11 @@ class DashboardViewModel @Inject constructor(
 
     fun setShortcut(entityId: String, behavior: ShortcutBehavior) = viewModelScope.launch {
         val existing = latestSettings.homeShortcuts.filterNot { it.entityId == entityId }
-        val shortcuts = (existing + ShortcutConfiguration(entityId, behavior)).take(4)
+        if (existing.size >= MAX_HOME_SHORTCUTS) {
+            error.value = "Home screen already has four shortcuts. Remove one to continue."
+            return@launch
+        }
+        val shortcuts = existing + ShortcutConfiguration(entityId, behavior)
         settingsRepository.saveShortcuts(shortcuts)
         publishShortcutsIfEnabled(shortcuts)
     }
@@ -679,6 +705,32 @@ class DashboardViewModel @Inject constructor(
         targetEntityId?.let(::focusEntity)
     }
 
+    private fun flushPendingFocus() {
+        focusSaveJob?.cancel()
+        focusSaveJob = null
+        val entityId = pendingFocusEntityId ?: return
+        pendingFocusEntityId = null
+        lateinit var saveJob: Job
+        saveJob = viewModelScope.launch {
+            if (entityId != latestSettings.lastFocusedEntityId) {
+                settingsRepository.saveLastFocusedEntity(entityId)
+            }
+        }
+        focusSaveJob = saveJob
+        saveJob.invokeOnCompletion {
+            if (focusSaveJob === saveJob) focusSaveJob = null
+        }
+    }
+
+    private suspend fun persistPendingFocus() {
+        val entityId = pendingFocusEntityId ?: return
+        pendingFocusEntityId = null
+        focusSaveJob = null
+        if (entityId != latestSettings.lastFocusedEntityId) {
+            settingsRepository.saveLastFocusedEntity(entityId)
+        }
+    }
+
     private fun DetailState.entityId(): String = when (this) {
         is DetailState.Level -> entity.entityId
         is DetailState.Climate -> entity.entityId
@@ -689,22 +741,25 @@ class DashboardViewModel @Inject constructor(
         is DetailState.Text -> entity.entityId
     }
 
+    private fun ControlAction.entityId(): String = when (this) {
+        is ControlAction.Toggle -> entity.entityId
+        is ControlAction.SetLevel -> entity.entityId
+        is ControlAction.SetClimateMode -> entity.entityId
+        is ControlAction.SetClimateTemperature -> entity.entityId
+        is ControlAction.ActivateScene -> entity.entityId
+        is ControlAction.RunScript -> entity.entityId
+        is ControlAction.PressButton -> entity.entityId
+        is ControlAction.SetNumberValue -> entity.entityId
+        is ControlAction.SelectOption -> entity.entityId
+        is ControlAction.SetTextValue -> entity.entityId
+        is ControlAction.CoverCommand -> entity.entityId
+        is ControlAction.ArmAlarm -> entity.entityId
+        is ControlAction.DisarmAlarm -> entity.entityId
+    }
+
     private fun execute(action: ControlAction) = viewModelScope.launch {
-        val id = when (action) {
-            is ControlAction.Toggle -> action.entity.entityId
-            is ControlAction.SetLevel -> action.entity.entityId
-            is ControlAction.SetClimateMode -> action.entity.entityId
-            is ControlAction.SetClimateTemperature -> action.entity.entityId
-            is ControlAction.ActivateScene -> action.entity.entityId
-            is ControlAction.RunScript -> action.entity.entityId
-            is ControlAction.PressButton -> action.entity.entityId
-            is ControlAction.SetNumberValue -> action.entity.entityId
-            is ControlAction.SelectOption -> action.entity.entityId
-            is ControlAction.SetTextValue -> action.entity.entityId
-            is ControlAction.CoverCommand -> action.entity.entityId
-            is ControlAction.ArmAlarm -> action.entity.entityId
-            is ControlAction.DisarmAlarm -> action.entity.entityId
-        }
+        val id = action.entityId()
+        if (id in pending.value) return@launch
         pending.value += id
         homeAssistantRepository.execute(action).onFailure { error.value = it.message ?: "Home Assistant did not accept the command" }
         pending.value -= id
@@ -741,6 +796,12 @@ class DashboardViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        focusSaveJob?.cancel()
         homeAssistantRepository.stop()
+    }
+
+    private companion object {
+        const val MAX_HOME_SHORTCUTS = 4
+        const val FOCUS_SAVE_DEBOUNCE_MS = 300L
     }
 }

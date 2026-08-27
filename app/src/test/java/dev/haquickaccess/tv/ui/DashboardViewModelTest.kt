@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -227,6 +228,38 @@ class DashboardViewModelTest {
         assertEquals(listOf(second.entityId, first.entityId, third.entityId), settings.value.tiles.sortedBy(TileConfiguration::position).map(TileConfiguration::entityId))
         assertEquals(4, settings.value.homeShortcuts.size)
         assertTrue(settings.value.homeShortcuts.none { it.entityId == fifth.entityId })
+        assertEquals("Home screen already has four shortcuts. Remove one to continue.", viewModel.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun `focus persistence coalesces rapid remote navigation and saves the final tile`() = runTest {
+        val settings = FakeSettingsStore()
+        val viewModel = viewModel(settings = settings)
+        observe(viewModel)
+
+        viewModel.saveFocus("light.first")
+        advanceTimeBy(100)
+        viewModel.saveFocus("light.second")
+        advanceTimeBy(299)
+        runCurrent()
+        assertTrue(settings.focusSaves.isEmpty())
+
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf("light.second"), settings.focusSaves)
+    }
+
+    @Test
+    fun `backgrounding flushes the latest pending focus`() = runTest {
+        val settings = FakeSettingsStore()
+        val viewModel = viewModel(settings = settings)
+        observe(viewModel)
+
+        viewModel.saveFocus("switch.final")
+        viewModel.onBackground()
+        runCurrent()
+
+        assertEquals(listOf("switch.final"), settings.focusSaves)
     }
 
     @Test
@@ -505,7 +538,9 @@ class DashboardViewModelTest {
         observe(viewModel)
 
         viewModel.toggle(lamp)
+        viewModel.toggle(lamp)
         assertTrue(lamp.entityId in viewModel.uiState.value.pendingEntityIds)
+        assertEquals(1, session.actions.size)
 
         session.pendingAction?.complete(Result.success(Unit))
         runCurrent()
@@ -523,6 +558,8 @@ class DashboardViewModelTest {
 
         val firstRequest = requireNotNull(viewModel.uiState.value.focusRequest)
         assertEquals(lamp.entityId, firstRequest.entityId)
+        advanceTimeBy(300)
+        runCurrent()
         assertEquals(lamp.entityId, settings.value.lastFocusedEntityId)
 
         viewModel.acknowledgeFocusRequest(firstRequest.sequence)
@@ -658,6 +695,8 @@ class DashboardViewModelTest {
         assertEquals(AppScreen.ManageShortcuts, viewModel.uiState.value.screen)
         viewModel.closeScreen()
         viewModel.saveFocus(first.entityId)
+        advanceTimeBy(300)
+        runCurrent()
         viewModel.removeTile(first.entityId)
         viewModel.removeShortcut(first.entityId)
         viewModel.refreshHomeChannel()
@@ -826,6 +865,8 @@ class DashboardViewModelTest {
         assertEquals("https://ha.example", viewModel.uiState.value.setupBaseUrl)
         viewModel.openDiagnostics()
         assertEquals(AppScreen.Diagnostics, viewModel.uiState.value.screen)
+        viewModel.openPrivacyPolicy()
+        assertEquals(AppScreen.Privacy, viewModel.uiState.value.screen)
     }
 
     @Test
@@ -939,6 +980,7 @@ class DashboardViewModelTest {
         val value: AppSettings get() = mutableSettings.value
         var savedConnection: Pair<String, String>? = null
         var decryptFailure: Throwable? = null
+        val focusSaves = mutableListOf<String>()
 
         override suspend fun saveConnection(baseUrl: String, token: String) {
             savedConnection = baseUrl to token
@@ -963,6 +1005,7 @@ class DashboardViewModelTest {
         }
 
         override suspend fun saveLastFocusedEntity(entityId: String) {
+            focusSaves += entityId
             mutableSettings.update { it.copy(lastFocusedEntityId = entityId) }
         }
 

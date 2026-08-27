@@ -236,4 +236,22 @@ class HaEntityTest {
         assertEquals(listOf("heat"), light.hvacModes())
         assertEquals(null, HaEntity("cover.blinds", "closed").levelPercent())
     }
+
+    @Test
+    fun `malformed integration attributes are ignored instead of crashing capability discovery`() {
+        val entity = HaEntity(
+            "input_select.source",
+            "unknown",
+            JsonObject(
+                mapOf(
+                    "friendly_name" to JsonArray(emptyList()),
+                    "options" to JsonPrimitive("HDMI 1"),
+                ),
+            ),
+        )
+
+        assertEquals("source", entity.name)
+        assertEquals(emptyList(), entity.selectOptions())
+        assertFalse(entity.capabilities().canSelectOption)
+    }
 }

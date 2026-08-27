@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -49,5 +50,15 @@ class HomeAssistantProtocolTest {
         assertTrue(entity?.isOn == true)
         assertNull(HomeAssistantProtocol.entityFromJson(JsonPrimitive("not-an-object")))
         assertNull(HomeAssistantProtocol.entityFromJson(JsonObject(mapOf("entity_id" to JsonPrimitive("light.den")))))
+        assertNull(
+            HomeAssistantProtocol.entityFromJson(
+                JsonObject(
+                    mapOf(
+                        "entity_id" to JsonArray(emptyList()),
+                        "state" to JsonPrimitive("on"),
+                    ),
+                ),
+            ),
+        )
     }
 }

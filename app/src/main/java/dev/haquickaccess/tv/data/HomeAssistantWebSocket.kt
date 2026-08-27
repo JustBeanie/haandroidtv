@@ -18,11 +18,10 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
+import kotlinx.serialization.json.longOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -73,6 +72,7 @@ class HomeAssistantWebSocket private constructor(
     private var authResult: CompletableDeferred<Result<Unit>>? = null
     private var currentToken: String? = null
     private var initialStatesRequestId: Long? = null
+    private var stateSubscriptionRequestId: Long? = null
 
     override suspend fun connect(baseUrl: String, token: String): Result<Unit> {
         disconnect()
@@ -108,6 +108,7 @@ class HomeAssistantWebSocket private constructor(
         socket = null
         currentToken = null
         initialStatesRequestId = null
+        stateSubscriptionRequestId = null
         _entities.value = emptyMap()
         _initialStatesLoaded.value = false
         authResult?.complete(Result.failure(IllegalStateException("Disconnected")))
@@ -121,6 +122,8 @@ class HomeAssistantWebSocket private constructor(
     private fun sendInitialRequests() {
         initialStatesRequestId = nextId.get()
         sendCommand("get_states")
+        if (socket == null) return
+        stateSubscriptionRequestId = nextId.get()
         sendCommand(
             type = "subscribe_events",
             extra = buildJsonObject { put("event_type", JsonPrimitive("state_changed")) },
@@ -132,9 +135,15 @@ class HomeAssistantWebSocket private constructor(
         val result = CompletableDeferred<Result<JsonObject>>()
         val message = HomeAssistantProtocol.command(id, type, extra)
         pending[id] = result
-        if (socket?.send(json.encodeToString(JsonObject.serializer(), message)) != true) {
+        val activeSocket = socket
+        if (activeSocket?.send(json.encodeToString(JsonObject.serializer(), message)) != true) {
+            val failure = IllegalStateException("Home Assistant is not connected")
             pending.remove(id)
-            result.complete(Result.failure(IllegalStateException("Home Assistant is not connected")))
+            result.complete(Result.failure(failure))
+            if (activeSocket != null) {
+                failActiveSocket(activeSocket, failure, "Home Assistant connection lost")
+                activeSocket.cancel()
+            }
         }
         return result
     }
@@ -161,7 +170,7 @@ class HomeAssistantWebSocket private constructor(
     }
 
     private fun applyStateChange(data: JsonObject?) {
-        val entityId = data?.get("entity_id")?.jsonPrimitive?.content ?: return
+        val entityId = (data?.get("entity_id") as? JsonPrimitive)?.contentOrNull ?: return
         val newState = data["new_state"] as? JsonObject
         if (newState == null) {
             _entities.value = _entities.value - entityId
@@ -180,52 +189,41 @@ class HomeAssistantWebSocket private constructor(
         override fun onMessage(webSocket: WebSocket, text: String) {
             if (socket !== webSocket) return
             val message = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
-            when (message["type"]?.jsonPrimitive?.content) {
-                "auth_required" -> webSocket.send(
-                    json.encodeToString(JsonObject.serializer(), HomeAssistantProtocol.authMessage(currentToken.orEmpty())),
-                )
+            when ((message["type"] as? JsonPrimitive)?.contentOrNull) {
+                "auth_required" -> {
+                    val sent = webSocket.send(
+                        json.encodeToString(JsonObject.serializer(), HomeAssistantProtocol.authMessage(currentToken.orEmpty())),
+                    )
+                    if (!sent) {
+                        val failure = IllegalStateException("Could not authenticate with Home Assistant")
+                        failActiveSocket(webSocket, failure, "Home Assistant connection lost")
+                        webSocket.cancel()
+                    }
+                }
                 "auth_ok" -> {
-                    _status.value = ConnectionStatus.Connected(message["ha_version"]?.jsonPrimitive?.content)
+                    _status.value = ConnectionStatus.Connected((message["ha_version"] as? JsonPrimitive)?.contentOrNull)
                     authResult?.complete(Result.success(Unit))
+                    authResult = null
                     sendInitialRequests()
                 }
                 "auth_invalid" -> {
-                    val exception = SecurityException(message["message"]?.jsonPrimitive?.content ?: "Token rejected")
-                    _status.value = ConnectionStatus.Failed("Authentication failed", retryable = false)
-                    authResult?.complete(Result.failure(exception))
-                    authResult = null
-                    currentToken = null
-                    initialStatesRequestId = null
-                    _entities.value = emptyMap()
-                    _initialStatesLoaded.value = false
-                    pending.values.forEach { it.complete(Result.failure(exception)) }
-                    pending.clear()
-                    socket = null
+                    val exception = SecurityException((message["message"] as? JsonPrimitive)?.contentOrNull ?: "Token rejected")
+                    failActiveSocket(webSocket, exception, "Authentication failed", retryable = false)
                     webSocket.close(1008, "Authentication failed")
                 }
                 "result" -> completeRequest(message)
                 "event" -> {
-                    val event = message["event"]?.jsonObject
-                    if (event?.get("event_type")?.jsonPrimitive?.content == "state_changed") {
-                        applyStateChange(event["data"]?.jsonObject)
+                    val event = message["event"] as? JsonObject
+                    if ((event?.get("event_type") as? JsonPrimitive)?.contentOrNull == "state_changed") {
+                        applyStateChange(event["data"] as? JsonObject)
                     }
                 }
             }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            if (socket !== webSocket) return
             val message = t.message ?: "Network connection failed"
-            socket = null
-            currentToken = null
-            initialStatesRequestId = null
-            _entities.value = emptyMap()
-            _initialStatesLoaded.value = false
-            _status.value = ConnectionStatus.Failed(message)
-            authResult?.complete(Result.failure(t))
-            authResult = null
-            pending.values.forEach { it.complete(Result.failure(t)) }
-            pending.clear()
+            failActiveSocket(webSocket, t, message)
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -233,6 +231,7 @@ class HomeAssistantWebSocket private constructor(
             socket = null
             currentToken = null
             initialStatesRequestId = null
+            stateSubscriptionRequestId = null
             _entities.value = emptyMap()
             _initialStatesLoaded.value = false
             val failure = IllegalStateException(reason.ifBlank { "Home Assistant closed the connection" })
@@ -245,14 +244,56 @@ class HomeAssistantWebSocket private constructor(
     }
 
     private fun completeRequest(message: JsonObject) {
-        val id = message["id"]?.jsonPrimitive?.long ?: return
+        val id = (message["id"] as? JsonPrimitive)?.longOrNull ?: return
         val result = pending.remove(id) ?: return
-        if (message["success"]?.jsonPrimitive?.boolean == true) {
-            if (id == initialStatesRequestId) message["result"]?.jsonArray?.let(::replaceStates)
+        if ((message["success"] as? JsonPrimitive)?.booleanOrNull == true) {
+            if (id == initialStatesRequestId) {
+                val states = message["result"] as? JsonArray
+                if (states == null) {
+                    val failure = IllegalStateException("Home Assistant returned invalid initial states")
+                    result.complete(Result.failure(failure))
+                    socket?.let { activeSocket ->
+                        failActiveSocket(activeSocket, failure, "Could not load Home Assistant states")
+                        activeSocket.cancel()
+                    }
+                    return
+                }
+                initialStatesRequestId = null
+                replaceStates(states)
+            } else if (id == stateSubscriptionRequestId) {
+                stateSubscriptionRequestId = null
+            }
             result.complete(Result.success(message))
         } else {
-            result.complete(Result.failure(IllegalStateException(message["error"]?.toString() ?: "Home Assistant rejected command")))
+            val failure = IllegalStateException(message["error"]?.toString() ?: "Home Assistant rejected command")
+            result.complete(Result.failure(failure))
+            if (id == initialStatesRequestId || id == stateSubscriptionRequestId) {
+                socket?.let { activeSocket ->
+                    failActiveSocket(activeSocket, failure, "Could not initialize Home Assistant updates")
+                    activeSocket.cancel()
+                }
+            }
         }
+    }
+
+    private fun failActiveSocket(
+        webSocket: WebSocket,
+        failure: Throwable,
+        message: String,
+        retryable: Boolean = true,
+    ) {
+        if (socket !== webSocket) return
+        socket = null
+        currentToken = null
+        initialStatesRequestId = null
+        stateSubscriptionRequestId = null
+        _entities.value = emptyMap()
+        _initialStatesLoaded.value = false
+        _status.value = ConnectionStatus.Failed(message, retryable)
+        authResult?.complete(Result.failure(failure))
+        authResult = null
+        pending.values.forEach { it.complete(Result.failure(failure)) }
+        pending.clear()
     }
 
     private companion object {

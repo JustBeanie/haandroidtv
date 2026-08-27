@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -83,6 +84,7 @@ import dev.haquickaccess.tv.domain.model.ControlAction
 import dev.haquickaccess.tv.domain.model.ControlBrowser
 import dev.haquickaccess.tv.domain.model.ControlKind
 import dev.haquickaccess.tv.domain.model.HaEntity
+import dev.haquickaccess.tv.domain.model.ShortcutBehavior
 import dev.haquickaccess.tv.domain.model.alarmArmModes
 import dev.haquickaccess.tv.domain.model.alarmCodeIsNumeric
 import dev.haquickaccess.tv.domain.model.actionLabel
@@ -209,6 +211,7 @@ fun HaQuickAccessApp(
                     )
                     state.screen == AppScreen.ManageShortcuts -> ShortcutManagerScreen(state, onEvent)
                     state.screen == AppScreen.Diagnostics -> DiagnosticsScreen(state, onEvent)
+                    state.screen == AppScreen.Privacy -> PrivacyPolicyScreen(onEvent)
                     else -> DashboardScreen(state, onEvent)
                 }
                 state.details?.let { DetailDialog(it, onEvent) }
@@ -478,7 +481,7 @@ private fun FocusedControlContext(entity: HaEntity, pending: Boolean) {
         Spacer(Modifier.width(10.dp))
         HaText(entity.name, 16.sp)
         Spacer(Modifier.width(12.dp))
-        HaText(actionHint, 14.sp, HaMuted, Modifier.weight(1f))
+        HaText(actionHint, 14.sp, Modifier.weight(1f), HaMuted)
     }
 }
 
@@ -624,7 +627,7 @@ private fun HomeAssistantTile(
             )
             HaText(stateLabel, 14.sp, if (entity.unavailable) HaRed else iconTint)
         }
-        HaText(entity.name, 17.sp, HaText, Modifier.align(Alignment.BottomStart))
+        HaText(entity.name, 17.sp, Modifier.align(Alignment.BottomStart), HaText)
     }
     LaunchedEffect(requestInitialFocus) {
         if (requestInitialFocus) {
@@ -653,6 +656,11 @@ private fun SettingsScreen(state: DashboardUiState, onEvent: DashboardViewModel)
         Spacer(Modifier.height(8.dp))
         SettingRow("Connection", state.settings.baseUrl.orEmpty(), onEvent::openConnectionSetup)
         SettingRow("Diagnostics", "Connection health, cache, and TV Home status", onEvent::openDiagnostics)
+        SettingRow(
+            "Privacy policy",
+            "How HA Quick Access handles connection data",
+            onClick = onEvent::openPrivacyPolicy,
+        )
         Spacer(Modifier.height(10.dp))
         HaButton("Forget Home Assistant", onEvent::clearConnection, destructive = true)
         Spacer(Modifier.weight(1f))
@@ -740,6 +748,57 @@ private fun DiagnosticRow(label: String, value: String) {
 }
 
 @Composable
+private fun PrivacyPolicyScreen(onEvent: DashboardViewModel) {
+    Column(Modifier.fillMaxSize()) {
+        HaText("Privacy policy", 30.sp)
+        Spacer(Modifier.height(6.dp))
+        HaText("Last updated August 25, 2026", 14.sp, color = HaMuted)
+        Spacer(Modifier.height(18.dp))
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            HaText(
+                "HA Quick Access is an independent Android TV client for a Home Assistant server chosen and operated by you. It is not affiliated with Home Assistant.",
+                16.sp,
+            )
+            HaText("Data handling", 20.sp, color = HaCyan)
+            HaText(
+                "The app does not collect, sell, share, or transmit your data to the app developer or to advertising, analytics, or crash-reporting services.",
+                16.sp,
+                color = HaMuted,
+            )
+            HaText(
+                "Your server address, dashboard settings, and last selected tile stay on this device. Your Home Assistant token is encrypted with a non-exportable Android Keystore key, and app backup and device-transfer backup are disabled.",
+                16.sp,
+                color = HaMuted,
+            )
+            HaText(
+                "The app sends the token and your control requests only to the HTTPS/WSS Home Assistant server that you enter. That user-operated server has its own privacy practices.",
+                16.sp,
+                color = HaMuted,
+            )
+            HaText("Deletion", 20.sp, color = HaCyan)
+            HaText(
+                "Choose Forget Home Assistant to remove locally stored connection information. Uninstalling also removes local app data and the associated Keystore key.",
+                16.sp,
+                color = HaMuted,
+            )
+            HaText(
+                "Questions can be submitted at github.com/JustBeanie/haandroidtv/issues.",
+                16.sp,
+                color = HaMuted,
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        HaButton("Back", onEvent::closeScreen, requestInitialFocus = true)
+    }
+}
+
+@Composable
 private fun ShortcutManagerScreen(state: DashboardUiState, onEvent: DashboardViewModel) {
     Column(Modifier.fillMaxSize()) {
         HaText("Home screen shortcuts", 30.sp)
@@ -751,17 +810,19 @@ private fun ShortcutManagerScreen(state: DashboardUiState, onEvent: DashboardVie
             HaText("In Projectivy, open Settings › Edit Channels › HA Quick Access to show these tiles.", 14.sp, HaMuted)
         }
         Spacer(Modifier.height(16.dp))
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             state.tiles.forEach { entity ->
-                val existing = state.settings.homeShortcuts.firstOrNull { it.entityId == entity.entityId }
-                Column(Modifier.fillMaxWidth().background(HaSurface, RoundedCornerShape(12.dp)).padding(14.dp)) {
-                    HaText(entity.name, 17.sp)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (entity.capabilities().canToggle) HaButton("Toggle", { onEvent.setShortcut(entity.entityId, dev.haquickaccess.tv.domain.model.ShortcutBehavior.TOGGLE) }, primary = existing?.behavior?.name == "TOGGLE")
-                        HaButton("Focus", { onEvent.setShortcut(entity.entityId, dev.haquickaccess.tv.domain.model.ShortcutBehavior.FOCUS) }, primary = existing?.behavior?.name == "FOCUS")
-                        if (onEvent.supportsDetails(entity)) HaButton("Details", { onEvent.setShortcut(entity.entityId, dev.haquickaccess.tv.domain.model.ShortcutBehavior.DETAILS) }, primary = existing?.behavior?.name == "DETAILS")
-                        if (existing != null) HaButton("Remove", { onEvent.removeShortcut(entity.entityId) }, destructive = true)
+                item(key = entity.entityId) {
+                    val existing = state.settings.homeShortcuts.firstOrNull { it.entityId == entity.entityId }
+                    Column(Modifier.fillMaxWidth().background(HaSurface, RoundedCornerShape(12.dp)).padding(14.dp)) {
+                        HaText(entity.name, 17.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (entity.capabilities().canToggle) HaButton("Toggle", { onEvent.setShortcut(entity.entityId, ShortcutBehavior.TOGGLE) }, primary = existing?.behavior == ShortcutBehavior.TOGGLE)
+                            HaButton("Focus", { onEvent.setShortcut(entity.entityId, ShortcutBehavior.FOCUS) }, primary = existing?.behavior == ShortcutBehavior.FOCUS)
+                            if (onEvent.supportsDetails(entity)) HaButton("Details", { onEvent.setShortcut(entity.entityId, ShortcutBehavior.DETAILS) }, primary = existing?.behavior == ShortcutBehavior.DETAILS)
+                            if (existing != null) HaButton("Remove", { onEvent.removeShortcut(entity.entityId) }, destructive = true)
+                        }
                     }
                 }
             }
@@ -809,17 +870,22 @@ private fun TileManagerScreen(
     }
     val isReplacingLauncherShortcut = state.launcherShortcutReplacement != null
     val selectionLabel = if (isReplacingLauncherShortcut) "Select to replace" else "Select to add"
-    val selectableControls = state.availableEntities.filter { candidate ->
-        state.settings.tiles.none { it.entityId == candidate.entityId }
+    val selectableControls = remember(state.availableEntities, state.settings.tiles) {
+        val configuredEntityIds = state.settings.tiles.mapTo(hashSetOf()) { it.entityId }
+        state.availableEntities.filterNot { it.entityId in configuredEntityIds }
     }
-    val unavailableControlCount = selectableControls.count(HaEntity::unavailable)
-    val readOnlyControlCount = selectableControls.count { !it.capabilities().isQuickControl }
-    val availableControls = selectableControls.filter { entity ->
-        (includeUnavailable || !entity.unavailable) &&
-            (includeReadOnly || entity.capabilities().isQuickControl)
+    val unavailableControlCount = remember(selectableControls) { selectableControls.count(HaEntity::unavailable) }
+    val readOnlyControlCount = remember(selectableControls) { selectableControls.count { !it.capabilities().isQuickControl } }
+    val availableControls = remember(selectableControls, includeUnavailable, includeReadOnly) {
+        selectableControls.filter { entity ->
+            (includeUnavailable || !entity.unavailable) &&
+                (includeReadOnly || entity.capabilities().isQuickControl)
+        }
     }
-    val domains = ControlBrowser.domains(availableControls)
-    val filteredControls = ControlBrowser.filter(availableControls, searchQuery, selectedDomain)
+    val domains = remember(availableControls) { ControlBrowser.domains(availableControls) }
+    val filteredControls = remember(availableControls, searchQuery, selectedDomain) {
+        ControlBrowser.filter(availableControls, searchQuery, selectedDomain)
+    }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -1454,16 +1520,16 @@ private fun HaTextField(
     value: String,
     onValueChange: (String) -> Unit,
     secret: Boolean,
+    modifier: Modifier = Modifier,
     numeric: Boolean = false,
     requestInitialFocus: Boolean = false,
-    modifier: Modifier = Modifier.width(520.dp),
     placeholder: String = "Enter value",
     downFocusRequester: FocusRequester? = null,
     onFocusChanged: (Boolean) -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
-    Column(modifier) {
+    Column(modifier.widthIn(max = 520.dp).fillMaxWidth()) {
         HaText(label, 14.sp, HaMuted)
         Spacer(Modifier.height(6.dp))
         BasicTextField(
@@ -1583,7 +1649,21 @@ private fun ErrorMessage(message: String, dismiss: () -> Unit) {
 }
 
 @Composable
-private fun HaText(value: String, size: androidx.compose.ui.unit.TextUnit, color: Color = HaText, modifier: Modifier = Modifier) {
+private fun HaText(
+    value: String,
+    size: androidx.compose.ui.unit.TextUnit,
+    color: Color = HaText,
+) {
+    HaText(value, size, Modifier, color)
+}
+
+@Composable
+private fun HaText(
+    value: String,
+    size: androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier,
+    color: Color = HaText,
+) {
     Text(value, modifier = modifier, color = color, fontSize = size)
 }
 

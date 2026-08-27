@@ -78,6 +78,23 @@ android {
     }
 }
 
+// Google Play accepts only signed Android App Bundles. Keeping this check out
+// of assembleRelease preserves the documented unsigned APK workflow for local
+// Shield sideloading. It must run before packageReleaseBundle, not merely
+// bundleRelease, so an unsigned bundle is never produced.
+val verifyReleaseSigning by tasks.registering {
+    doLast {
+        check(releaseSigningProperties.isNotEmpty()) {
+            "A signed Play bundle requires a private root-level keystore.properties file. " +
+                "See README.md for the required properties."
+        }
+    }
+}
+
+tasks.matching { it.name == "packageReleaseBundle" }.configureEach {
+    dependsOn(verifyReleaseSigning)
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
