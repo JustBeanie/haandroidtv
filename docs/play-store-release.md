@@ -52,7 +52,7 @@ Control your Home Assistant devices from an Android TV remote.
 
 HA Quick Access is a fast, remote-first Home Assistant control surface for
 Android TV. Connect directly to your own Home Assistant server and keep the
-controls you use most in a clear four-column TV grid.
+controls you use most in a clear, responsive TV grid.
 
 * Control lights, switches, fans, climate, covers, alarms, scenes, scripts,
   and buttons when supported by your Home Assistant entities.
@@ -68,15 +68,16 @@ Assistant.
 
 ## Required creative assets
 
-Prepare these from the signed release running on a real Android TV device or
-TV emulator:
+The prepared upload assets are in `play-store-assets/`. Re-capture screenshots
+if the release UI changes materially:
 
-1. A 512 x 512 PNG app icon (no transparency outside the icon safe area).
-2. A 1280 x 720 PNG feature graphic, without device frames or promotional
-   claims that cannot be substantiated.
-3. At least two Android TV screenshots that show setup and the configured
-   dashboard. Use screenshots of a demo Home Assistant instance only: redact
-   addresses, tokens, household names, and camera imagery.
+1. `app-icon-512x512.png`: 512 x 512 PNG with no transparency.
+2. `feature-graphic-1280x720.png`: 1280 x 720 PNG without device frames or
+   promotional claims.
+3. `screenshots/01-setup.png` and `screenshots/02-dashboard.png`: 1920 x 1080
+   captures of the actual Compose UI rendered on an Android TV emulator. The
+   configured dashboard uses synthetic demo entities and contains no server,
+   token, household name, or camera imagery.
 4. A reviewer test account/server and concise login instructions in the
    non-public App access section.
 
