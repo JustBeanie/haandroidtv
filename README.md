@@ -87,7 +87,9 @@ emulator smoke test, and a debug APK build in GitHub Actions.
 Before distributing a release APK, run the physical-device checklist in
 [Shield Pro release validation](docs/shield-pro-validation.md).
 The included `tools/validate-shield.ps1` helper installs an APK, measures cold
-starts, and captures `gfxinfo` once a Shield is connected through ADB.
+starts, and captures `gfxinfo` once a Shield is connected through ADB. Debug
+timings are diagnostic only; use `-BuildVariant Release` with the signed,
+minified APK for the 1.5-second release launch target.
 When the Shield is already connected to Home Assistant's Android Debug Bridge
 integration, use the [Home Assistant ADB deployment guide](docs/home-assistant-adb-deployment.md)
 to upload, install, launch, and collect the same diagnostics remotely.

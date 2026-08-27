@@ -11,6 +11,17 @@ debug APK, collect ten cold-start timings, and print `gfxinfo` diagnostics:
 ./tools/validate-shield.ps1 -Serial <shield-adb-serial> -Install
 ```
 
+Debug timings are informational only; debug execution is not a release
+performance gate. Benchmark the signed, minified release APK before
+distribution:
+
+```text
+./tools/validate-shield.ps1 -Serial <shield-adb-serial> -Install -ApkPath app/build/outputs/apk/release/app-release.apk -PackageName dev.haquickaccess.tv -BuildVariant Release
+```
+
+Investigate an average release cold-start time above 1.5 seconds before
+distribution.
+
 It intentionally does not automate safety, TLS, Home Assistant, or remote
 checks; record those manual results below.
 

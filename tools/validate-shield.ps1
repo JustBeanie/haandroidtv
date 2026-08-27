@@ -5,6 +5,8 @@ param(
     [string]$ApkPath = "app/build/outputs/apk/debug/app-debug.apk",
     [string]$PackageName = "dev.haquickaccess.tv.debug",
     [string]$ActivityName = "dev.haquickaccess.tv.MainActivity",
+    [ValidateSet("Debug", "Release")]
+    [string]$BuildVariant = "Debug",
     [switch]$Install,
     [ValidateRange(1, 20)]
     [int]$LaunchIterations = 10
@@ -48,6 +50,7 @@ if ($Install) {
 
 Write-Host "\nLaunch timing ($LaunchIterations cold starts):"
 $times = [System.Collections.Generic.List[int]]::new()
+$releaseLaunchTargetMissed = $false
 for ($index = 1; $index -le $LaunchIterations; $index++) {
     Invoke-Adb -Arguments @("shell", "am", "force-stop", $PackageName)
     $launch = Invoke-Adb -Arguments @("shell", "am", "start-activity", "-W", "-n", $activityName)
@@ -63,10 +66,23 @@ for ($index = 1; $index -le $LaunchIterations; $index++) {
 if ($times.Count -gt 0) {
     $average = [math]::Round(($times | Measure-Object -Average).Average, 1)
     $maximum = ($times | Measure-Object -Maximum).Maximum
-    Write-Host "Average: $average ms; max: $maximum ms; target: <= 1500 ms to cached focused control."
+    if ($BuildVariant -eq "Release") {
+        Write-Host "Average: $average ms; max: $maximum ms; release target: <= 1500 ms to cached focused control."
+        if ($average -gt 1500) {
+            Write-Warning "Release launch target missed. Investigate before distribution."
+            $releaseLaunchTargetMissed = $true
+        }
+    } else {
+        Write-Host "Average: $average ms; max: $maximum ms; debug timing is informational only."
+        Write-Host "Benchmark the signed, minified APK with -BuildVariant Release before distribution."
+    }
 }
 
 Write-Host "\nRendering diagnostics (capture this output with the release checklist):"
 Invoke-Adb -Arguments @("shell", "dumpsys", "gfxinfo", $PackageName)
+
+if ($releaseLaunchTargetMissed) {
+    throw "Release launch target missed. Investigate before distribution."
+}
 
 Write-Host "\nManual checks still required: remote-only setup, Settings-button mapping, valid/invalid TLS, live Home Assistant updates, alarm/cover confirmations, Android TV Home opt-in, and command-feedback timing."
