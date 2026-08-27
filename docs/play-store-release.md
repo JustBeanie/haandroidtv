@@ -7,9 +7,11 @@ It assumes an Android TV-only distribution.
 
 1. Create a Play Console developer account and create the app with package name
    `dev.haquickaccess.tv`. The package name is permanent after the first upload.
-2. Enable GitHub Pages for the repository's `docs/` directory (or publish the
-   same unmodified policy on another public, non-authenticated HTTPS page).
-   The app includes the same policy text under Settings > Privacy policy. Ensure
+2. Keep the privacy-only GitHub Pages workflow enabled (or publish the same
+   unmodified policy on another public, non-authenticated HTTPS page). The
+   workflow intentionally deploys only `privacy-policy.html`, not the rest of
+   the private release documentation. The app includes the same policy text
+   under Settings > Privacy policy. Ensure
    `https://justbeanie.github.io/haandroidtv/privacy-policy.html` is live before
    uploading and enter that URL in Play Console.
 3. Create and securely back up the upload keystore. Do not use a debug key and
