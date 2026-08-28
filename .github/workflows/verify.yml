@@ -3,7 +3,9 @@ name: Verify Android TV app
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'codex/**'
 
 permissions:
   contents: read
