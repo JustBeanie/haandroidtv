@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "HA Quick Access"
 include(":app")
+include(":benchmark")

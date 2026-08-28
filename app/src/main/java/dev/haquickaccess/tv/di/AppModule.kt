@@ -13,6 +13,8 @@ import dev.haquickaccess.tv.data.HomeAssistantSession
 import dev.haquickaccess.tv.data.HomeAssistantWebSocket
 import dev.haquickaccess.tv.data.SettingsRepository
 import dev.haquickaccess.tv.data.SettingsStore
+import dev.haquickaccess.tv.data.DataStoreTileSnapshotStore
+import dev.haquickaccess.tv.data.TileSnapshotStore
 import dev.haquickaccess.tv.platform.HomeChannelGateway
 import dev.haquickaccess.tv.platform.HomeChannelPublisher
 import javax.inject.Qualifier
@@ -40,6 +42,10 @@ abstract class BindingModule {
     @Binds
     @Singleton
     abstract fun bindSettingsStore(implementation: SettingsRepository): SettingsStore
+
+    @Binds
+    @Singleton
+    abstract fun bindTileSnapshotStore(implementation: DataStoreTileSnapshotStore): TileSnapshotStore
 
     @Binds
     @Singleton

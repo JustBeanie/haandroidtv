@@ -54,7 +54,12 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 900
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-          script: adb wait-for-device shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 1; done;' && sleep 30 && ./gradlew :app:connectedDebugAndroidTest
+          script: |
+            adb wait-for-device shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 1; done;'
+            sleep 30
+            ./gradlew :app:connectedDebugAndroidTest
+            ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest \
+              -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -62,3 +67,6 @@ jobs:
           path: |
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
+            benchmark/build/outputs/connected_android_test_additional_output
+            benchmark/build/reports/androidTests
+            benchmark/build/outputs/androidTest-results

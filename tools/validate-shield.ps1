@@ -27,6 +27,50 @@ function Invoke-Adb {
     }
 }
 
+function Get-Percentile {
+    param(
+        [Parameter(Mandatory = $true)][int[]]$Values,
+        [Parameter(Mandatory = $true)][ValidateRange(0.0, 1.0)][double]$Percentile
+    )
+    $sorted = @($Values | Sort-Object)
+    if ($sorted.Count -eq 0) { return $null }
+    $index = [Math]::Max(0, [Math]::Ceiling($Percentile * $sorted.Count) - 1)
+    return $sorted[$index]
+}
+
+function Measure-Launches {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][bool]$Cold
+    )
+    Write-Host "`n$Label launch timing ($LaunchIterations runs):"
+    $times = [System.Collections.Generic.List[int]]::new()
+    if (-not $Cold) {
+        Invoke-Adb -Arguments @("shell", "am", "start-activity", "-W", "-n", $activityName) | Out-Null
+    }
+    for ($index = 1; $index -le $LaunchIterations; $index++) {
+        if ($Cold) {
+            Invoke-Adb -Arguments @("shell", "am", "force-stop", $PackageName)
+        } else {
+            Invoke-Adb -Arguments @("shell", "input", "keyevent", "KEYCODE_HOME")
+        }
+        $launch = Invoke-Adb -Arguments @("shell", "am", "start-activity", "-W", "-n", $activityName)
+        $totalTime = $launch | Select-String -Pattern "^TotalTime:\s+(\d+)" | ForEach-Object { [int]$_.Matches[0].Groups[1].Value }
+        if ($totalTime.Count -eq 1) {
+            $times.Add($totalTime[0])
+            Write-Host "  $index : $($totalTime[0]) ms"
+        } else {
+            Write-Warning "Could not determine launch time for run $index."
+        }
+    }
+    if ($times.Count -eq 0) { return $null }
+    $median = Get-Percentile -Values $times.ToArray() -Percentile 0.5
+    $p95 = Get-Percentile -Values $times.ToArray() -Percentile 0.95
+    $maximum = ($times | Measure-Object -Maximum).Maximum
+    Write-Host "$Label median: $median ms; p95: $p95 ms; max: $maximum ms."
+    return [pscustomobject]@{ Median = $median; P95 = $p95; Maximum = $maximum }
+}
+
 $devices = Invoke-Adb -Arguments @("devices")
 $connected = $devices | Select-String -Pattern "\sdevice$"
 if ($connected.Count -eq 0) {
@@ -39,7 +83,7 @@ if ([string]::IsNullOrWhiteSpace($Serial) -and $connected.Count -gt 1) {
 $model = (Invoke-Adb -Arguments @("shell", "getprop", "ro.product.model") | Out-String).Trim()
 Write-Host "Target: $model"
 if ($model -notmatch "SHIELD|NVIDIA") {
-    Write-Warning "This does not identify as an NVIDIA Shield. Continue only if this is the intended Android TV device."
+    throw "Release validation requires a physical NVIDIA Shield. Use the Macrobenchmark suite for emulator trend data."
 }
 
 if ($Install) {
@@ -48,34 +92,18 @@ if ($Install) {
     Invoke-Adb -Arguments @("install", "-r", $resolvedApk.Path)
 }
 
-Write-Host "\nLaunch timing ($LaunchIterations cold starts):"
-$times = [System.Collections.Generic.List[int]]::new()
 $releaseLaunchTargetMissed = $false
-for ($index = 1; $index -le $LaunchIterations; $index++) {
-    Invoke-Adb -Arguments @("shell", "am", "force-stop", $PackageName)
-    $launch = Invoke-Adb -Arguments @("shell", "am", "start-activity", "-W", "-n", $activityName)
-    $totalTime = $launch | Select-String -Pattern "^TotalTime:\s+(\d+)" | ForEach-Object { [int]$_.Matches[0].Groups[1].Value }
-    if ($totalTime.Count -eq 1) {
-        $times.Add($totalTime[0])
-        Write-Host "  $index : $($totalTime[0]) ms"
-    } else {
-        Write-Warning "Could not determine launch time for run $index."
-    }
-}
+$coldResults = Measure-Launches -Label "Cold" -Cold $true
+$warmResults = Measure-Launches -Label "Warm" -Cold $false
 
-if ($times.Count -gt 0) {
-    $average = [math]::Round(($times | Measure-Object -Average).Average, 1)
-    $maximum = ($times | Measure-Object -Maximum).Maximum
-    if ($BuildVariant -eq "Release") {
-        Write-Host "Average: $average ms; max: $maximum ms; release target: <= 1500 ms to cached focused control."
-        if ($average -gt 1500) {
-            Write-Warning "Release launch target missed. Investigate before distribution."
-            $releaseLaunchTargetMissed = $true
-        }
-    } else {
-        Write-Host "Average: $average ms; max: $maximum ms; debug timing is informational only."
-        Write-Host "Benchmark the signed, minified APK with -BuildVariant Release before distribution."
+if ($BuildVariant -eq "Release" -and $null -ne $coldResults) {
+    Write-Host "Release target: cold median <= 1500 ms to cached focused control."
+    if ($coldResults.Median -gt 1500) {
+        Write-Warning "Release launch target missed. Investigate before distribution."
+        $releaseLaunchTargetMissed = $true
     }
+} elseif ($BuildVariant -eq "Debug") {
+    Write-Host "Debug timing is informational only. Benchmark the signed, minified APK with -BuildVariant Release before distribution."
 }
 
 Write-Host "\nRendering diagnostics (capture this output with the release checklist):"

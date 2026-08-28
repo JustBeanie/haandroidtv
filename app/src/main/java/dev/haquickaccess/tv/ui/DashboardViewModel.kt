@@ -2,11 +2,15 @@ package dev.haquickaccess.tv.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.haquickaccess.tv.BuildConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.haquickaccess.tv.data.AppSettings
 import dev.haquickaccess.tv.data.ConnectionStatus
+import dev.haquickaccess.tv.data.EmptyTileSnapshotStore
 import dev.haquickaccess.tv.data.HomeAssistantSession
 import dev.haquickaccess.tv.data.SettingsStore
+import dev.haquickaccess.tv.data.TileSnapshot
+import dev.haquickaccess.tv.data.TileSnapshotStore
 import dev.haquickaccess.tv.data.UrlValidator
 import dev.haquickaccess.tv.di.IoDispatcher
 import dev.haquickaccess.tv.domain.model.ControlAction
@@ -99,21 +103,41 @@ data class DashboardUiState(
     val areInitialStatesLoaded: Boolean = false,
     val screen: AppScreen = AppScreen.Dashboard,
     val details: DetailState? = null,
-    val pendingEntityIds: Set<String> = emptySet(),
+    val commandFeedback: Map<String, CommandFeedback> = emptyMap(),
     val errorMessage: String? = null,
     val setupBaseUrl: String = "",
     val setupToken: String = "",
+    val setupErrorMessage: String? = null,
     val isForeground: Boolean = false,
     val isSavingConnection: Boolean = false,
     val connectionStatus: ConnectionStatus = ConnectionStatus.Disconnected,
     val focusRequest: FocusRequest? = null,
     val launcherRecovery: LauncherRecovery? = null,
     val launcherShortcutReplacement: LauncherShortcutReplacement? = null,
+    val tileSnapshot: TileSnapshot? = null,
 ) {
     val isConfigured: Boolean get() = settings.baseUrl != null && settings.tokenEnvelope != null
+    val pendingEntityIds: Set<String> get() = commandFeedback.filterValues { it is CommandFeedback.Pending }.keys
     val tiles: List<HaEntity> by lazy(LazyThreadSafetyMode.NONE) {
         settings.tiles.sortedBy(TileConfiguration::position).mapNotNull { entities[it.entityId] }
     }
+    val dashboardTiles: List<DashboardTileUiModel> by lazy(LazyThreadSafetyMode.NONE) {
+        val orderedConfigurations = settings.tiles.sortedBy(TileConfiguration::position)
+        val liveTiles = orderedConfigurations.mapNotNull { configuration ->
+            entities[configuration.entityId]?.toDashboardTileUiModel()
+        }
+        if (areInitialStatesLoaded) {
+            liveTiles
+        } else {
+            val liveTilesById = liveTiles.associateBy { it.entityId }
+            val cachedTiles = tileSnapshot?.tiles.orEmpty().associateBy { it.entityId }
+            orderedConfigurations.mapNotNull { configuration ->
+                liveTilesById[configuration.entityId]
+                    ?: cachedTiles[configuration.entityId]?.toDashboardTileUiModel()
+            }
+        }
+    }
+    val isShowingCachedSnapshot: Boolean get() = dashboardTiles.any { !it.live }
     val availableEntities: List<HaEntity> by lazy(LazyThreadSafetyMode.NONE) {
         entities.values.sortedBy(HaEntity::name)
     }
@@ -125,12 +149,13 @@ private data class DashboardConnectionState(
     val entities: Map<String, HaEntity>,
     val initialStatesLoaded: Boolean,
     val status: ConnectionStatus,
+    val tileSnapshot: TileSnapshot?,
 )
 
 private data class DashboardInteractionState(
     val screen: AppScreen,
     val details: DetailState?,
-    val pendingEntityIds: Set<String>,
+    val commandFeedback: Map<String, CommandFeedback>,
     val errorMessage: String?,
     val focusRequest: FocusRequest?,
     val launcherRecovery: LauncherRecovery?,
@@ -140,6 +165,7 @@ private data class DashboardInteractionState(
 private data class DashboardSetupState(
     val baseUrl: String,
     val token: String,
+    val errorMessage: String?,
     val foreground: Boolean,
     val savingConnection: Boolean,
 )
@@ -149,29 +175,46 @@ class DashboardViewModel @Inject constructor(
     private val settingsRepository: SettingsStore,
     private val homeAssistantRepository: HomeAssistantSession,
     private val homeChannelPublisher: HomeChannelGateway,
+    private val tileSnapshotStore: TileSnapshotStore,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
+    constructor(
+        settingsRepository: SettingsStore,
+        homeAssistantRepository: HomeAssistantSession,
+        homeChannelPublisher: HomeChannelGateway,
+        ioDispatcher: CoroutineDispatcher,
+    ) : this(
+        settingsRepository,
+        homeAssistantRepository,
+        homeChannelPublisher,
+        EmptyTileSnapshotStore,
+        ioDispatcher,
+    )
+
     private val screen = MutableStateFlow<AppScreen>(AppScreen.Dashboard)
     private val details = MutableStateFlow<DetailState?>(null)
-    private val pending = MutableStateFlow<Set<String>>(emptySet())
+    private val commandFeedback = MutableStateFlow<Map<String, CommandFeedback>>(emptyMap())
     private val error = MutableStateFlow<String?>(null)
     private val focusRequest = MutableStateFlow<FocusRequest?>(null)
     private val launcherRecovery = MutableStateFlow<LauncherRecovery?>(null)
     private val launcherShortcutReplacement = MutableStateFlow<LauncherShortcutReplacement?>(null)
     private val setupBaseUrl = MutableStateFlow("")
     private val setupToken = MutableStateFlow("")
+    private val setupError = MutableStateFlow<String?>(null)
     private val foreground = MutableStateFlow(false)
     private val savingConnection = MutableStateFlow(false)
+    private val benchmarkOverride = MutableStateFlow<DashboardUiState?>(null)
     private val _homeChannelRequests = MutableSharedFlow<Long>(extraBufferCapacity = 1)
     val homeChannelRequests = _homeChannelRequests
     private var latestSettings = AppSettings()
     private var latestEntities: Map<String, HaEntity> = emptyMap()
-    private var cachedEntities: Map<String, HaEntity> = emptyMap()
     private var activeSession: Pair<String, String>? = null
     private var connectionValidationJob: Job? = null
     private var focusSaveJob: Job? = null
+    private var snapshotSaveJob: Job? = null
     private var pendingFocusEntityId: String? = null
     private var nextFocusRequestSequence = 0L
+    private var nextCommandFeedbackSequence = 0L
     private val isProjectivyInstalled = homeChannelPublisher.isProjectivyInstalled()
 
     private val connectionState = combine(
@@ -179,22 +222,17 @@ class DashboardViewModel @Inject constructor(
         homeAssistantRepository.entities,
         homeAssistantRepository.initialStatesLoaded,
         homeAssistantRepository.status,
-    ) { currentSettings, entities, initialStatesLoaded, status ->
+        tileSnapshotStore.snapshot,
+    ) { currentSettings, entities, initialStatesLoaded, status, snapshot ->
         latestSettings = currentSettings
         latestEntities = entities
-        if (entities.isNotEmpty()) cachedEntities = entities
-        val canShowCachedEntities =
-            !initialStatesLoaded &&
-                entities.isEmpty() &&
-                cachedEntities.isNotEmpty() &&
-                currentSettings.baseUrl != null &&
-                currentSettings.tokenEnvelope != null
         DashboardConnectionState(
             settings = currentSettings,
             settingsLoaded = true,
-            entities = if (canShowCachedEntities) cachedEntities else entities,
+            entities = entities,
             initialStatesLoaded = initialStatesLoaded,
             status = status,
+            tileSnapshot = snapshot,
         )
     }
 
@@ -202,11 +240,11 @@ class DashboardViewModel @Inject constructor(
         combine(
             screen,
             details,
-            pending,
+            commandFeedback,
             error,
             focusRequest,
-        ) { currentScreen, currentDetails, currentPending, currentError, currentFocusRequest ->
-            DashboardInteractionState(currentScreen, currentDetails, currentPending, currentError, currentFocusRequest, null, null)
+        ) { currentScreen, currentDetails, currentFeedback, currentError, currentFocusRequest ->
+            DashboardInteractionState(currentScreen, currentDetails, currentFeedback, currentError, currentFocusRequest, null, null)
         },
         launcherRecovery,
         launcherShortcutReplacement,
@@ -220,13 +258,14 @@ class DashboardViewModel @Inject constructor(
     private val setupState = combine(
         setupBaseUrl,
         setupToken,
+        setupError,
         foreground,
         savingConnection,
-    ) { baseUrl, token, isForeground, isSaving ->
-        DashboardSetupState(baseUrl, token, isForeground, isSaving)
+    ) { baseUrl, token, setupErrorMessage, isForeground, isSaving ->
+        DashboardSetupState(baseUrl, token, setupErrorMessage, isForeground, isSaving)
     }
 
-    val uiState: StateFlow<DashboardUiState> = combine(
+    private val liveUiState: StateFlow<DashboardUiState> = combine(
         connectionState,
         interactionState,
         setupState,
@@ -239,17 +278,23 @@ class DashboardViewModel @Inject constructor(
             areInitialStatesLoaded = connection.initialStatesLoaded,
             screen = interaction.screen,
             details = interaction.details,
-            pendingEntityIds = interaction.pendingEntityIds,
+            commandFeedback = interaction.commandFeedback,
             errorMessage = interaction.errorMessage,
             setupBaseUrl = setup.baseUrl,
             setupToken = setup.token,
+            setupErrorMessage = setup.errorMessage,
             isForeground = setup.foreground,
             isSavingConnection = setup.savingConnection,
             connectionStatus = connection.status,
             focusRequest = interaction.focusRequest,
             launcherRecovery = interaction.launcherRecovery,
             launcherShortcutReplacement = interaction.launcherShortcutReplacement,
+            tileSnapshot = connection.tileSnapshot,
         )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
+
+    val uiState: StateFlow<DashboardUiState> = combine(liveUiState, benchmarkOverride) { live, benchmark ->
+        benchmark ?: live
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 
     init {
@@ -259,6 +304,52 @@ class DashboardViewModel @Inject constructor(
             }.collect { (configuredSettings, isForeground) ->
                 latestSettings = configuredSettings
                 synchronizeForegroundSession(configuredSettings, isForeground)
+            }
+        }
+        viewModelScope.launch {
+            var previousEntities: Map<String, HaEntity> = emptyMap()
+            homeAssistantRepository.entities.collect { currentEntities ->
+                if (previousEntities.isNotEmpty()) {
+                    val confirmedFailures = commandFeedback.value
+                        .filterValues { it is CommandFeedback.Failed }
+                        .keys
+                        .filter { entityId ->
+                            val previous = previousEntities[entityId]
+                            val current = currentEntities[entityId]
+                            previous != null && current != null && previous != current
+                        }
+                    if (confirmedFailures.isNotEmpty()) {
+                        commandFeedback.value -= confirmedFailures.toSet()
+                    }
+                }
+                previousEntities = currentEntities
+            }
+        }
+        viewModelScope.launch {
+            combine(
+                settingsRepository.settings,
+                homeAssistantRepository.entities,
+                homeAssistantRepository.initialStatesLoaded,
+            ) { currentSettings, currentEntities, initialStatesLoaded ->
+                if (!initialStatesLoaded || currentSettings.baseUrl == null || currentSettings.tokenEnvelope == null) {
+                    return@combine emptyList()
+                }
+                currentSettings.tiles
+                    .sortedBy(TileConfiguration::position)
+                    .mapNotNull { currentEntities[it.entityId] }
+                    .map { it.toDashboardTileUiModel().toSnapshotEntry() }
+            }.collect { entries ->
+                snapshotSaveJob?.cancel()
+                if (entries.isEmpty()) return@collect
+                snapshotSaveJob = viewModelScope.launch(ioDispatcher) {
+                    delay(SNAPSHOT_SAVE_DEBOUNCE_MS)
+                    tileSnapshotStore.save(
+                        TileSnapshot(
+                            capturedAtEpochMillis = System.currentTimeMillis(),
+                            tiles = entries,
+                        ),
+                    )
+                }
             }
         }
     }
@@ -277,8 +368,15 @@ class DashboardViewModel @Inject constructor(
         flushPendingFocus()
     }
 
-    fun updateSetupBaseUrl(value: String) { setupBaseUrl.value = value }
-    fun updateSetupToken(value: String) { setupToken.value = value }
+    fun updateSetupBaseUrl(value: String) {
+        setupBaseUrl.value = value
+        setupError.value = null
+    }
+
+    fun updateSetupToken(value: String) {
+        setupToken.value = value
+        setupError.value = null
+    }
 
     fun saveConnection() {
         connectionValidationJob?.cancel()
@@ -286,14 +384,13 @@ class DashboardViewModel @Inject constructor(
             val normalizedUrl = UrlValidator.normalize(setupBaseUrl.value)
             val token = setupToken.value.trim()
             if (normalizedUrl.isFailure || token.isBlank()) {
-                error.value = normalizedUrl.exceptionOrNull()?.message ?: "Enter a Home Assistant token"
+                setupError.value = normalizedUrl.exceptionOrNull()?.message ?: "Enter a Home Assistant token"
                 return@launch
             }
             val validatedUrl = normalizedUrl.getOrThrow()
             val previousSettings = latestSettings
             activeSession = null
             homeAssistantRepository.stop()
-            cachedEntities = emptyMap()
             savingConnection.value = true
             try {
                 val validation = try {
@@ -304,12 +401,14 @@ class DashboardViewModel @Inject constructor(
                     Result.failure(exception)
                 }
                 if (validation.isFailure) {
-                    error.value = validation.exceptionOrNull()?.message ?: "Could not connect to Home Assistant"
+                    setupError.value = validation.exceptionOrNull()?.message ?: "Could not connect to Home Assistant"
                     synchronizeForegroundSession(previousSettings, foreground.value)
                     return@launch
                 }
+                tileSnapshotStore.clear()
                 settingsRepository.saveConnection(validatedUrl, token)
                 setupToken.value = ""
+                setupError.value = null
                 error.value = null
                 screen.value = AppScreen.Dashboard
             } finally {
@@ -326,8 +425,8 @@ class DashboardViewModel @Inject constructor(
         pendingFocusEntityId = null
         homeAssistantRepository.stop()
         activeSession = null
-        cachedEntities = emptyMap()
         latestSettings.channelId?.let { removeHomeChannel(it) }
+        tileSnapshotStore.clear()
         settingsRepository.clearConnection()
         details.value = null
         screen.value = AppScreen.Dashboard
@@ -339,6 +438,7 @@ class DashboardViewModel @Inject constructor(
     fun openConnectionSetup() {
         setupBaseUrl.value = latestSettings.baseUrl.orEmpty()
         setupToken.value = ""
+        setupError.value = null
         screen.value = AppScreen.ConnectionSetup
     }
     fun openDiagnostics() { screen.value = AppScreen.Diagnostics }
@@ -415,6 +515,10 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    fun enableBenchmarkFixture() {
+        if (BuildConfig.BENCHMARK_MODE) benchmarkOverride.value = BenchmarkFixture.dashboardState()
+    }
+
     fun focusEntity(entityId: String) {
         screen.value = AppScreen.Dashboard
         details.value = null
@@ -472,6 +576,15 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    fun performPrimaryAction(entityId: String) {
+        val entity = latestEntities[entityId]
+        if (entity == null) {
+            commandFeedback.value += entityId to CommandFeedback.Failed("Waiting for live Home Assistant state")
+            return
+        }
+        performPrimaryAction(entity)
+    }
+
     fun toggle(entity: HaEntity) = execute(ControlAction.Toggle(entity))
 
     fun supportsDetails(entity: HaEntity): Boolean =
@@ -493,6 +606,21 @@ class DashboardViewModel @Inject constructor(
             entity.capabilities().canSelectOption -> DetailState.Select(entity)
             entity.capabilities().canSetText -> DetailState.Text(entity)
             else -> null
+        }
+    }
+
+    fun openDetails(entityId: String) {
+        val entity = latestEntities[entityId]
+        if (entity == null) {
+            commandFeedback.value += entityId to CommandFeedback.Failed("Details are available after Home Assistant reconnects")
+            return
+        }
+        openDetails(entity)
+    }
+
+    fun dismissCommandFailure(entityId: String) {
+        if (commandFeedback.value[entityId] is CommandFeedback.Failed) {
+            commandFeedback.value -= entityId
         }
     }
 
@@ -759,10 +887,20 @@ class DashboardViewModel @Inject constructor(
 
     private fun execute(action: ControlAction) = viewModelScope.launch {
         val id = action.entityId()
-        if (id in pending.value) return@launch
-        pending.value += id
-        homeAssistantRepository.execute(action).onFailure { error.value = it.message ?: "Home Assistant did not accept the command" }
-        pending.value -= id
+        if (commandFeedback.value[id] is CommandFeedback.Pending) return@launch
+        commandFeedback.value += id to CommandFeedback.Pending
+        val result = homeAssistantRepository.execute(action)
+        if (result.isSuccess) {
+            nextCommandFeedbackSequence += 1
+            val success = CommandFeedback.Succeeded(nextCommandFeedbackSequence)
+            commandFeedback.value += id to success
+            delay(COMMAND_SUCCESS_VISIBLE_MS)
+            if (commandFeedback.value[id] == success) commandFeedback.value -= id
+        } else {
+            commandFeedback.value += id to CommandFeedback.Failed(
+                result.exceptionOrNull()?.message ?: "Home Assistant did not accept the command",
+            )
+        }
     }
 
     private fun synchronizeForegroundSession(settings: AppSettings, isForeground: Boolean) {
@@ -797,11 +935,20 @@ class DashboardViewModel @Inject constructor(
 
     override fun onCleared() {
         focusSaveJob?.cancel()
+        snapshotSaveJob?.cancel()
         homeAssistantRepository.stop()
     }
 
     private companion object {
         const val MAX_HOME_SHORTCUTS = 4
         const val FOCUS_SAVE_DEBOUNCE_MS = 300L
+        const val SNAPSHOT_SAVE_DEBOUNCE_MS = 1_000L
+        const val COMMAND_SUCCESS_VISIBLE_MS = 1_200L
     }
+}
+
+sealed interface CommandFeedback {
+    data object Pending : CommandFeedback
+    data class Succeeded(val sequence: Long) : CommandFeedback
+    data class Failed(val message: String) : CommandFeedback
 }

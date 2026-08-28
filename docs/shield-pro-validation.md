@@ -19,8 +19,11 @@ distribution:
 ./tools/validate-shield.ps1 -Serial <shield-adb-serial> -Install -ApkPath app/build/outputs/apk/release/app-release.apk -PackageName dev.haquickaccess.tv -BuildVariant Release
 ```
 
-Investigate an average release cold-start time above 1.5 seconds before
+Investigate a median release cold-start time above 1.5 seconds before
 distribution.
+
+The helper deliberately refuses non-NVIDIA devices so emulator trend results
+cannot accidentally be recorded as the physical Shield release gate.
 
 It intentionally does not automate safety, TLS, Home Assistant, or remote
 checks; record those manual results below.
@@ -79,7 +82,7 @@ existing authenticated ADB connection.
 ## Performance
 
 - From a cached grid, time launch-to-focused-control over ten cold/warm runs;
-  the target is no more than 1.5 seconds for cached interaction.
+  the release cold-start median target is no more than 1.5 seconds for cached interaction.
 - Trigger ten safe commands and confirm the tile displays pending feedback
   within 100 ms before the Home Assistant response returns.
 - Capture `adb shell dumpsys gfxinfo dev.haquickaccess.tv` while navigating a

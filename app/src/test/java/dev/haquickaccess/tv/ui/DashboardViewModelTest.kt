@@ -4,6 +4,9 @@ import dev.haquickaccess.tv.data.AppSettings
 import dev.haquickaccess.tv.data.ConnectionStatus
 import dev.haquickaccess.tv.data.HomeAssistantSession
 import dev.haquickaccess.tv.data.SettingsStore
+import dev.haquickaccess.tv.data.TileSnapshot
+import dev.haquickaccess.tv.data.TileSnapshotEntry
+import dev.haquickaccess.tv.data.TileSnapshotStore
 import dev.haquickaccess.tv.domain.model.ControlAction
 import dev.haquickaccess.tv.domain.model.HaEntity
 import dev.haquickaccess.tv.domain.model.ShortcutBehavior
@@ -308,7 +311,8 @@ class DashboardViewModelTest {
         viewModel.updateSetupBaseUrl("http://not-secure.example")
         viewModel.updateSetupToken("token")
         viewModel.saveConnection()
-        assertTrue(viewModel.uiState.value.errorMessage!!.contains("HTTPS"))
+        assertTrue(viewModel.uiState.value.setupErrorMessage!!.contains("HTTPS"))
+        assertNull(viewModel.uiState.value.errorMessage)
 
         viewModel.updateSetupBaseUrl("https://ha.example/base/")
         viewModel.updateSetupToken("new-token")
@@ -712,9 +716,13 @@ class DashboardViewModelTest {
 
         session.result = Result.failure(IllegalStateException("Service unavailable"))
         viewModel.toggle(second)
-        assertEquals("Service unavailable", viewModel.uiState.value.errorMessage)
-        viewModel.dismissError()
+        assertEquals(
+            CommandFeedback.Failed("Service unavailable"),
+            viewModel.uiState.value.commandFeedback[second.entityId],
+        )
         assertNull(viewModel.uiState.value.errorMessage)
+        viewModel.dismissCommandFailure(second.entityId)
+        assertNull(viewModel.uiState.value.commandFeedback[second.entityId])
 
         viewModel.clearConnection()
         assertEquals(AppSettings(), settings.value)
@@ -821,7 +829,8 @@ class DashboardViewModelTest {
             listOf("https://old.example" to "decrypted-token", "https://old.example" to "decrypted-token"),
             session.starts,
         )
-        assertTrue(viewModel.uiState.value.errorMessage!!.contains("Token rejected"))
+        assertTrue(viewModel.uiState.value.setupErrorMessage!!.contains("Token rejected"))
+        assertNull(viewModel.uiState.value.errorMessage)
     }
 
     @Test
@@ -900,7 +909,8 @@ class DashboardViewModelTest {
         viewModel.updateSetupToken("temporary-token")
         viewModel.saveConnection()
 
-        assertEquals("Socket failed", viewModel.uiState.value.errorMessage)
+        assertEquals("Socket failed", viewModel.uiState.value.setupErrorMessage)
+        assertNull(viewModel.uiState.value.errorMessage)
         assertFalse(viewModel.uiState.value.isSavingConnection)
         assertEquals(AppSettings(), settings.value)
     }
@@ -929,9 +939,10 @@ class DashboardViewModelTest {
     }
 
     @Test
-    fun `dashboard retains the last live tile snapshot while reconnecting`() = runTest {
+    fun `dashboard persists and renders the last live tile snapshot while reconnecting`() = runTest {
         val lamp = entity("light.den", "on")
         val session = FakeSession(mapOf(lamp.entityId to lamp))
+        val snapshots = FakeTileSnapshotStore()
         val settings = FakeSettingsStore(
             AppSettings(
                 baseUrl = "https://ha.example",
@@ -939,14 +950,148 @@ class DashboardViewModelTest {
                 tiles = listOf(TileConfiguration(lamp.entityId, 0)),
             ),
         )
-        val viewModel = viewModel(settings, session)
+        val viewModel = viewModel(settings, session, snapshots = snapshots)
         observe(viewModel)
+
+        advanceTimeBy(999)
+        runCurrent()
+        assertNull(snapshots.value)
+
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf(lamp.entityId), snapshots.value?.tiles?.map(TileSnapshotEntry::entityId))
 
         session.disconnectAndClearStates()
         runCurrent()
 
-        assertEquals(listOf(lamp), viewModel.uiState.value.tiles)
+        assertTrue(viewModel.uiState.value.tiles.isEmpty())
+        assertEquals(listOf(lamp.entityId), viewModel.uiState.value.dashboardTiles.map(DashboardTileUiModel::entityId))
+        assertTrue(viewModel.uiState.value.isShowingCachedSnapshot)
         assertFalse(viewModel.uiState.value.areInitialStatesLoaded)
+    }
+
+    @Test
+    fun `cached tiles are replaced by live models after reconnect`() = runTest {
+        val lamp = entity("light.den", "on")
+        val settings = FakeSettingsStore(
+            AppSettings(
+                baseUrl = "https://ha.example",
+                tokenEnvelope = "saved-token",
+                tiles = listOf(TileConfiguration(lamp.entityId, 0)),
+            ),
+        )
+        val snapshots = FakeTileSnapshotStore(
+            TileSnapshot(
+                capturedAtEpochMillis = 1L,
+                tiles = listOf(TileSnapshotEntry(lamp.entityId, "Old den", "LIGHT", "Off", false, false)),
+            ),
+        )
+        val session = FakeSession().apply { disconnectAndClearStates() }
+        val viewModel = viewModel(settings, session, snapshots = snapshots)
+        observe(viewModel)
+
+        assertEquals("Old den", viewModel.uiState.value.dashboardTiles.single().name)
+        assertFalse(viewModel.uiState.value.dashboardTiles.single().live)
+
+        session.connectWith(mapOf(lamp.entityId to lamp))
+        runCurrent()
+
+        assertEquals(lamp.name, viewModel.uiState.value.dashboardTiles.single().name)
+        assertTrue(viewModel.uiState.value.dashboardTiles.single().live)
+        assertFalse(viewModel.uiState.value.isShowingCachedSnapshot)
+    }
+
+    @Test
+    fun `partial reconnect merges live tiles with cache until initial states finish`() = runTest {
+        val liveLamp = entity("light.den", "on")
+        val cachedSwitchId = "switch.reading"
+        val settings = FakeSettingsStore(
+            AppSettings(
+                baseUrl = "https://ha.example",
+                tokenEnvelope = "saved-token",
+                tiles = listOf(
+                    TileConfiguration(liveLamp.entityId, 0),
+                    TileConfiguration(cachedSwitchId, 1),
+                ),
+            ),
+        )
+        val snapshots = FakeTileSnapshotStore(
+            TileSnapshot(
+                capturedAtEpochMillis = 1L,
+                tiles = listOf(
+                    TileSnapshotEntry(liveLamp.entityId, "Old den", "LIGHT", "Off", false, false),
+                    TileSnapshotEntry(cachedSwitchId, "Reading", "SWITCH", "On", true, false),
+                ),
+            ),
+        )
+        val session = FakeSession().apply {
+            disconnectAndClearStates()
+            receivePartialStates(mapOf(liveLamp.entityId to liveLamp))
+        }
+        val viewModel = viewModel(settings, session, snapshots = snapshots)
+        observe(viewModel)
+
+        val tiles = viewModel.uiState.value.dashboardTiles
+        assertEquals(listOf(liveLamp.entityId, cachedSwitchId), tiles.map(DashboardTileUiModel::entityId))
+        assertTrue(tiles.first().live)
+        assertFalse(tiles.last().live)
+        assertTrue(viewModel.uiState.value.isShowingCachedSnapshot)
+    }
+
+    @Test
+    fun `command feedback moves through pending success and expiry`() = runTest {
+        val lamp = entity("light.den", "off")
+        val session = FakeSession(mapOf(lamp.entityId to lamp)).apply { pendingAction = CompletableDeferred() }
+        val viewModel = viewModel(session = session)
+        observe(viewModel)
+
+        viewModel.performPrimaryAction(lamp.entityId)
+        assertEquals(CommandFeedback.Pending, viewModel.uiState.value.commandFeedback[lamp.entityId])
+
+        session.pendingAction?.complete(Result.success(Unit))
+        runCurrent()
+        assertIs<CommandFeedback.Succeeded>(viewModel.uiState.value.commandFeedback[lamp.entityId])
+
+        advanceTimeBy(1_200)
+        runCurrent()
+        assertNull(viewModel.uiState.value.commandFeedback[lamp.entityId])
+    }
+
+    @Test
+    fun `confirmed live update clears a command failure`() = runTest {
+        val lamp = entity("light.den", "off")
+        val session = FakeSession(mapOf(lamp.entityId to lamp)).apply {
+            result = Result.failure(IllegalStateException("Service unavailable"))
+        }
+        val viewModel = viewModel(session = session)
+        observe(viewModel)
+
+        viewModel.performPrimaryAction(lamp.entityId)
+        assertIs<CommandFeedback.Failed>(viewModel.uiState.value.commandFeedback[lamp.entityId])
+
+        session.connectWith(mapOf(lamp.entityId to lamp.copy(state = "on")))
+        runCurrent()
+
+        assertNull(viewModel.uiState.value.commandFeedback[lamp.entityId])
+    }
+
+    @Test
+    fun `clearing connection also clears persisted tile snapshot`() = runTest {
+        val snapshots = FakeTileSnapshotStore(
+            TileSnapshot(
+                capturedAtEpochMillis = 1L,
+                tiles = listOf(TileSnapshotEntry("light.den", "Den", "LIGHT", "On", true, false)),
+            ),
+        )
+        val settings = FakeSettingsStore(AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "saved"))
+        val viewModel = viewModel(settings = settings, snapshots = snapshots)
+        observe(viewModel)
+
+        viewModel.clearConnection()
+        runCurrent()
+
+        assertNull(snapshots.value)
+        assertEquals(1, snapshots.clears)
     }
 
     @Test
@@ -966,7 +1111,8 @@ class DashboardViewModelTest {
         settings: FakeSettingsStore = FakeSettingsStore(),
         session: FakeSession = FakeSession(),
         channel: FakeChannelGateway = FakeChannelGateway(),
-    ) = DashboardViewModel(settings, session, channel, dispatcher)
+        snapshots: FakeTileSnapshotStore = FakeTileSnapshotStore(),
+    ) = DashboardViewModel(settings, session, channel, snapshots, dispatcher)
 
     private fun entity(
         entityId: String,
@@ -1053,9 +1199,37 @@ class DashboardViewModelTest {
             mutableStatus.value = ConnectionStatus.Connecting
         }
 
+        fun connectWith(entities: Map<String, HaEntity>) {
+            mutableEntities.value = entities
+            mutableInitialStatesLoaded.value = true
+            mutableStatus.value = ConnectionStatus.Connected("test")
+        }
+
+        fun receivePartialStates(entities: Map<String, HaEntity>) {
+            mutableEntities.value = entities
+            mutableInitialStatesLoaded.value = false
+            mutableStatus.value = ConnectionStatus.Connecting
+        }
+
         override suspend fun execute(action: ControlAction): Result<Unit> {
             actions += action
             return pendingAction?.await() ?: result
+        }
+    }
+
+    private class FakeTileSnapshotStore(initial: TileSnapshot? = null) : TileSnapshotStore {
+        private val mutableSnapshot = MutableStateFlow(initial)
+        override val snapshot: StateFlow<TileSnapshot?> = mutableSnapshot.asStateFlow()
+        val value: TileSnapshot? get() = mutableSnapshot.value
+        var clears: Int = 0
+
+        override suspend fun save(snapshot: TileSnapshot) {
+            mutableSnapshot.value = snapshot
+        }
+
+        override suspend fun clear() {
+            clears += 1
+            mutableSnapshot.value = null
         }
     }
 

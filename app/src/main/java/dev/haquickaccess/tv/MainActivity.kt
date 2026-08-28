@@ -22,15 +22,20 @@ import kotlinx.coroutines.flow.collect
 class MainActivity : ComponentActivity() {
     private var launchEntityId by mutableStateOf<String?>(null)
     private var launchBehavior by mutableStateOf<String?>(null)
+    private var benchmarkFixtureRequested by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         launchEntityId = intent?.data?.lastPathSegment
         launchBehavior = intent?.data?.getQueryParameter("behavior")
+        benchmarkFixtureRequested = intent?.getBooleanExtra(EXTRA_BENCHMARK_FIXTURE, false) == true
         setContent {
             val dashboardViewModel: DashboardViewModel = viewModel()
             val state by dashboardViewModel.uiState.collectAsStateWithLifecycle()
+            LaunchedEffect(dashboardViewModel, benchmarkFixtureRequested) {
+                if (benchmarkFixtureRequested) dashboardViewModel.enableBenchmarkFixture()
+            }
             val channelRequest = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
             LaunchedEffect(dashboardViewModel) {
                 dashboardViewModel.homeChannelRequests.collect { channelId ->
@@ -54,5 +59,10 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         launchEntityId = intent.data?.lastPathSegment
         launchBehavior = intent.data?.getQueryParameter("behavior")
+        benchmarkFixtureRequested = intent.getBooleanExtra(EXTRA_BENCHMARK_FIXTURE, false)
+    }
+
+    companion object {
+        const val EXTRA_BENCHMARK_FIXTURE = "dev.haquickaccess.tv.extra.BENCHMARK_FIXTURE"
     }
 }
