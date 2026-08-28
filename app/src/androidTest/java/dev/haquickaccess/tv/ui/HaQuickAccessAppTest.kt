@@ -74,8 +74,6 @@ class HaQuickAccessAppTest {
             val state by viewModel.uiState.collectAsState()
             HaQuickAccessApp(
                 state = state,
-                deepLinkEntityId = null,
-                deepLinkBehavior = null,
                 onEvent = viewModel,
             )
         }
@@ -107,7 +105,7 @@ class HaQuickAccessAppTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithContentDescription("den, 50%").performTouchInput { longClick() }
@@ -129,7 +127,7 @@ class HaQuickAccessAppTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithContentDescription("den, 50%").performTouchInput { longClick() }
@@ -160,7 +158,7 @@ class HaQuickAccessAppTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithContentDescription("Manage controls").assertIsFocused()
@@ -177,7 +175,7 @@ class HaQuickAccessAppTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithText("Ready TV controls · 1").assertIsDisplayed()
@@ -205,7 +203,7 @@ class HaQuickAccessAppTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithContentDescription("Current dashboard order: 1. den, 2. reading").assertIsDisplayed()
@@ -220,10 +218,11 @@ class HaQuickAccessAppTest {
             AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "encrypted", tiles = listOf(TileConfiguration(lamp.entityId, 0))),
         )
         val viewModel = DashboardViewModel(settings, UiSession(mapOf(lamp.entityId to lamp)), UiChannelGateway(), Dispatchers.IO)
+        viewModel.handleLaunchRequest(lamp.entityId, "details")
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, lamp.entityId, "details", viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithText("Brightness: 50%").assertIsDisplayed()
@@ -242,10 +241,11 @@ class HaQuickAccessAppTest {
             AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "encrypted"),
         )
         val viewModel = DashboardViewModel(settings, UiSession(emptyMap()), UiChannelGateway(), Dispatchers.IO)
+        viewModel.handleLaunchRequest("light.removed", "focus")
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, "light.removed", "focus", viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithText("Shortcut needs attention").assertIsDisplayed()
@@ -271,7 +271,7 @@ class HaQuickAccessAppTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithText("Last known · reconnecting").assertIsDisplayed()
@@ -302,7 +302,7 @@ class HaQuickAccessAppTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithContentDescription("den, Off").performKeyInput { pressKey(Key.DirectionCenter) }
@@ -332,7 +332,7 @@ class HaQuickAccessAppTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithContentDescription("den, Off").performKeyInput { pressKey(Key.DirectionCenter) }
@@ -355,7 +355,7 @@ class HaQuickAccessAppTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
         composeRule.onNodeWithText("Connect Home Assistant").assertIsDisplayed()
 
@@ -386,7 +386,7 @@ class HaQuickAccessAppTest {
         composeRule.setContent {
             Box(Modifier.size(widthDp.dp, heightDp.dp)) {
                 val state by viewModel.uiState.collectAsState()
-                HaQuickAccessApp(state, null, null, viewModel)
+                HaQuickAccessApp(state, viewModel)
             }
         }
 
@@ -419,7 +419,7 @@ class HaQuickAccessAppTest {
         composeRule.setContent {
             Box(Modifier.size(widthDp.dp, heightDp.dp)) {
                 val state by viewModel.uiState.collectAsState()
-                HaQuickAccessApp(state, null, null, viewModel)
+                HaQuickAccessApp(state, viewModel)
             }
         }
 

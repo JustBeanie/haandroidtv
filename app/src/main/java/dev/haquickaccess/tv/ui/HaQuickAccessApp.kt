@@ -122,8 +122,6 @@ internal val HaViolet = Color(0xFFAA9CFF)
 @Composable
 fun HaQuickAccessApp(
     state: DashboardUiState,
-    deepLinkEntityId: String?,
-    deepLinkBehavior: String?,
     onEvent: DashboardViewModel,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -156,42 +154,6 @@ fun HaQuickAccessApp(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             onEvent.onBackground()
-        }
-    }
-
-    var handledDeepLink by remember(deepLinkEntityId, deepLinkBehavior) { mutableStateOf(false) }
-    LaunchedEffect(
-        deepLinkEntityId,
-        deepLinkBehavior,
-        state.isSettingsLoaded,
-        state.areInitialStatesLoaded,
-        state.connectionStatus,
-        state.entities,
-    ) {
-        if (handledDeepLink) return@LaunchedEffect
-        val entityId = deepLinkEntityId ?: return@LaunchedEffect
-        if (!state.isSettingsLoaded) return@LaunchedEffect
-        if (!state.areInitialStatesLoaded) {
-            if (state.connectionStatus is ConnectionStatus.Failed) {
-                onEvent.showMissingLauncherShortcut(entityId, deepLinkBehavior)
-                handledDeepLink = true
-            }
-            return@LaunchedEffect
-        }
-        state.entities[entityId]?.let { entity ->
-            when (deepLinkBehavior) {
-                "toggle" -> onEvent.performPrimaryAction(entity)
-                "details" -> onEvent.openShortcutDetails(entity)
-                "focus" -> onEvent.focusEntity(entity.entityId)
-                else -> onEvent.openShortcutDetails(entity)
-            }
-            handledDeepLink = true
-        } ?: run {
-            val terminalConnectionState = state.connectionStatus is ConnectionStatus.Failed
-            if (state.areInitialStatesLoaded || terminalConnectionState) {
-                onEvent.showMissingLauncherShortcut(entityId, deepLinkBehavior)
-                handledDeepLink = true
-            }
         }
     }
 
@@ -1147,6 +1109,7 @@ private fun HaTextField(
             visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 48.dp)
                 .focusRequester(focusRequester)
                 .onFocusChanged {
                     focused = it.isFocused
@@ -1197,7 +1160,7 @@ internal fun HaButton(
 
 @Composable
 private fun ErrorMessage(message: String, dismiss: () -> Unit) {
-    Box(Modifier.fillMaxWidth().padding(12.dp).background(HaRed.copy(alpha = .22f), RoundedCornerShape(10.dp)).clickable(onClick = dismiss).padding(14.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().padding(12.dp).heightIn(min = 48.dp).background(HaRed.copy(alpha = .22f), RoundedCornerShape(10.dp)).clickable(onClick = dismiss).padding(14.dp), contentAlignment = Alignment.Center) {
         HaText(message, 15.sp, HaText)
     }
 }

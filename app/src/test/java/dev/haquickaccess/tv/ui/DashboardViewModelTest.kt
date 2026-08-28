@@ -574,6 +574,71 @@ class DashboardViewModelTest {
     }
 
     @Test
+    fun `launch request details are resolved by the view model`() = runTest {
+        val lamp = entity("light.den", "on", attributes = mapOf("brightness" to JsonPrimitive(128)))
+        val viewModel = viewModel(session = FakeSession(mapOf(lamp.entityId to lamp)))
+        observe(viewModel)
+
+        viewModel.handleLaunchRequest(lamp.entityId, "details")
+        runCurrent()
+
+        assertIs<DetailState.Level>(viewModel.uiState.value.details)
+        assertNull(viewModel.uiState.value.focusRequest)
+    }
+
+    @Test
+    fun `launch request waits for complete live state before dispatch`() = runTest {
+        val lamp = entity("light.den", "off")
+        val session = FakeSession(mapOf(lamp.entityId to lamp))
+        val viewModel = viewModel(session = session)
+        observe(viewModel)
+        session.disconnectAndClearStates()
+
+        viewModel.handleLaunchRequest(lamp.entityId, "toggle")
+        session.receivePartialStates(mapOf(lamp.entityId to lamp))
+        runCurrent()
+
+        assertTrue(session.actions.isEmpty())
+        assertNull(viewModel.uiState.value.launcherRecovery)
+
+        session.connectWith(mapOf(lamp.entityId to lamp))
+        runCurrent()
+
+        assertEquals(listOf<ControlAction>(ControlAction.Toggle(lamp)), session.actions)
+    }
+
+    @Test
+    fun `missing launch request preserves shortcut behavior for recovery`() = runTest {
+        val viewModel = viewModel(session = FakeSession(emptyMap()))
+        observe(viewModel)
+
+        viewModel.handleLaunchRequest("light.removed", "toggle")
+        runCurrent()
+
+        val recovery = requireNotNull(viewModel.uiState.value.launcherRecovery)
+        assertEquals("light.removed", recovery.staleEntityId)
+        assertEquals(ShortcutBehavior.TOGGLE, recovery.behavior)
+    }
+
+    @Test
+    fun `identical launch intents are dispatched once per request`() = runTest {
+        val lamp = entity("light.den", "off")
+        val session = FakeSession(mapOf(lamp.entityId to lamp))
+        val viewModel = viewModel(session = session)
+        observe(viewModel)
+
+        viewModel.handleLaunchRequest(lamp.entityId, "toggle")
+        runCurrent()
+        viewModel.handleLaunchRequest(lamp.entityId, "toggle")
+        runCurrent()
+
+        assertEquals(
+            listOf<ControlAction>(ControlAction.Toggle(lamp), ControlAction.Toggle(lamp)),
+            session.actions,
+        )
+    }
+
+    @Test
     fun `details shortcuts focus controls without a details panel`() = runTest {
         val switch = entity("switch.bedside", "off")
         val light = entity("light.bedside", "on", attributes = mapOf("brightness" to JsonPrimitive(125)))

@@ -1,18 +1,17 @@
 package dev.haquickaccess.tv
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.tvprovider.media.tv.TvContractCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import dagger.hilt.android.AndroidEntryPoint
 import dev.haquickaccess.tv.ui.DashboardViewModel
 import dev.haquickaccess.tv.ui.HaQuickAccessApp
@@ -20,22 +19,14 @@ import kotlinx.coroutines.flow.collect
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    private var launchEntityId by mutableStateOf<String?>(null)
-    private var launchBehavior by mutableStateOf<String?>(null)
-    private var benchmarkFixtureRequested by mutableStateOf(false)
+    private val dashboardViewModel: DashboardViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        launchEntityId = intent?.data?.lastPathSegment
-        launchBehavior = intent?.data?.getQueryParameter("behavior")
-        benchmarkFixtureRequested = intent?.getBooleanExtra(EXTRA_BENCHMARK_FIXTURE, false) == true
+        dispatchLaunchIntent(intent)
         setContent {
-            val dashboardViewModel: DashboardViewModel = viewModel()
             val state by dashboardViewModel.uiState.collectAsStateWithLifecycle()
-            LaunchedEffect(dashboardViewModel, benchmarkFixtureRequested) {
-                if (benchmarkFixtureRequested) dashboardViewModel.enableBenchmarkFixture()
-            }
             val channelRequest = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
             LaunchedEffect(dashboardViewModel) {
                 dashboardViewModel.homeChannelRequests.collect { channelId ->
@@ -47,19 +38,23 @@ class MainActivity : ComponentActivity() {
             }
             HaQuickAccessApp(
                 state = state,
-                deepLinkEntityId = launchEntityId,
-                deepLinkBehavior = launchBehavior,
                 onEvent = dashboardViewModel,
             )
         }
     }
 
-    override fun onNewIntent(intent: android.content.Intent) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        launchEntityId = intent.data?.lastPathSegment
-        launchBehavior = intent.data?.getQueryParameter("behavior")
-        benchmarkFixtureRequested = intent.getBooleanExtra(EXTRA_BENCHMARK_FIXTURE, false)
+        dispatchLaunchIntent(intent)
+    }
+
+    private fun dispatchLaunchIntent(intent: Intent?) {
+        dashboardViewModel.handleLaunchRequest(
+            entityId = intent?.data?.lastPathSegment,
+            behavior = intent?.data?.getQueryParameter("behavior"),
+            benchmarkFixtureRequested = intent?.getBooleanExtra(EXTRA_BENCHMARK_FIXTURE, false) == true,
+        )
     }
 
     companion object {

@@ -36,7 +36,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.stateIn
@@ -170,6 +172,12 @@ private data class DashboardSetupState(
     val savingConnection: Boolean,
 )
 
+private data class LaunchRequest(
+    val entityId: String,
+    val behavior: String?,
+    val sequence: Long,
+)
+
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val settingsRepository: SettingsStore,
@@ -204,8 +212,9 @@ class DashboardViewModel @Inject constructor(
     private val foreground = MutableStateFlow(false)
     private val savingConnection = MutableStateFlow(false)
     private val benchmarkOverride = MutableStateFlow<DashboardUiState?>(null)
+    private val pendingLaunchRequest = MutableStateFlow<LaunchRequest?>(null)
     private val _homeChannelRequests = MutableSharedFlow<Long>(extraBufferCapacity = 1)
-    val homeChannelRequests = _homeChannelRequests
+    val homeChannelRequests: SharedFlow<Long> = _homeChannelRequests.asSharedFlow()
     private var latestSettings = AppSettings()
     private var latestEntities: Map<String, HaEntity> = emptyMap()
     private var activeSession: Pair<String, String>? = null
@@ -215,6 +224,7 @@ class DashboardViewModel @Inject constructor(
     private var pendingFocusEntityId: String? = null
     private var nextFocusRequestSequence = 0L
     private var nextCommandFeedbackSequence = 0L
+    private var nextLaunchRequestSequence = 0L
     private val isProjectivyInstalled = homeChannelPublisher.isProjectivyInstalled()
 
     private val connectionState = combine(
@@ -349,6 +359,31 @@ class DashboardViewModel @Inject constructor(
                             tiles = entries,
                         ),
                     )
+                }
+            }
+        }
+        viewModelScope.launch {
+            combine(
+                pendingLaunchRequest,
+                homeAssistantRepository.entities,
+                homeAssistantRepository.initialStatesLoaded,
+                homeAssistantRepository.status,
+            ) { request, entities, initialStatesLoaded, status ->
+                val ready = initialStatesLoaded || status is ConnectionStatus.Failed
+                Triple(request, entities, ready)
+            }.collect { (request, entities, ready) ->
+                request ?: return@collect
+                if (!ready) return@collect
+                pendingLaunchRequest.value = null
+                val entity = entities[request.entityId]
+                if (entity == null) {
+                    showMissingLauncherShortcut(request.entityId, request.behavior)
+                    return@collect
+                }
+                when (request.behavior?.lowercase()) {
+                    "toggle" -> performPrimaryAction(entity)
+                    "focus" -> focusEntity(entity.entityId)
+                    else -> openShortcutDetails(entity)
                 }
             }
         }
@@ -517,6 +552,21 @@ class DashboardViewModel @Inject constructor(
 
     fun enableBenchmarkFixture() {
         if (BuildConfig.BENCHMARK_MODE) benchmarkOverride.value = BenchmarkFixture.dashboardState()
+    }
+
+    fun handleLaunchRequest(
+        entityId: String?,
+        behavior: String?,
+        benchmarkFixtureRequested: Boolean = false,
+    ) {
+        if (benchmarkFixtureRequested) enableBenchmarkFixture()
+        val targetEntityId = entityId?.takeIf(String::isNotBlank) ?: return
+        nextLaunchRequestSequence += 1
+        pendingLaunchRequest.value = LaunchRequest(
+            entityId = targetEntityId,
+            behavior = behavior,
+            sequence = nextLaunchRequestSequence,
+        )
     }
 
     fun focusEntity(entityId: String) {

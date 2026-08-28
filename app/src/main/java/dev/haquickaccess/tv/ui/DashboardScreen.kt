@@ -343,6 +343,7 @@ private fun FocusedControlContext(
                 "Dismiss",
                 13.sp,
                 Modifier
+                    .heightIn(min = 48.dp)
                     .semantics { contentDescription = "Dismiss command error"; role = Role.Button }
                     .clickable(onClick = onDismissFailure)
                     .padding(8.dp),
