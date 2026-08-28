@@ -4,8 +4,16 @@ Run this checklist with the release APK on an NVIDIA Shield Pro and a non-test
 Home Assistant instance. Do not use a token with broader access than required
 for the selected entities.
 
-With USB debugging enabled, the included PowerShell helper can install the
-debug APK, collect ten cold-start timings, and print `gfxinfo` diagnostics:
+Before connecting hardware, verify the helper's modern and legacy `gfxinfo`
+parsers. CI runs the same hardware-free check on every branch build:
+
+```text
+./tools/validate-shield.ps1 -SelfTest
+```
+
+With USB debugging enabled, the helper can install the debug APK, collect ten
+cold and warm launch timings, traverse the grid five times, calculate frame
+overrun percentiles, and print `gfxinfo` diagnostics:
 
 ```text
 ./tools/validate-shield.ps1 -Serial <shield-adb-serial> -Install
@@ -16,17 +24,20 @@ performance gate. Benchmark the signed, minified release APK before
 distribution:
 
 ```text
-./tools/validate-shield.ps1 -Serial <shield-adb-serial> -Install -ApkPath app/build/outputs/apk/release/app-release.apk -PackageName dev.haquickaccess.tv -BuildVariant Release
+./tools/validate-shield.ps1 -Serial <shield-adb-serial> -Install -ApkPath app/build/outputs/apk/release/app-release.apk -PackageName dev.haquickaccess.tv -BuildVariant Release -PendingLatencyMs 58,50,67,58,75,50,67,58,50,67
 ```
 
-Investigate a median release cold-start time above 1.5 seconds before
-distribution.
+Replace the example pending values with ten measurements from the procedure
+below. Release mode fails unless all ten cold launches are captured, the cold
+median is at most 1.5 seconds, at least 30 valid frame records are captured,
+frame-overrun P95 is at most 0 ms, and all ten pending-feedback measurements
+are at most 100 ms. It records P99 for regression comparison.
 
 The helper deliberately refuses non-NVIDIA devices so emulator trend results
 cannot accidentally be recorded as the physical Shield release gate.
 
-It intentionally does not automate safety, TLS, Home Assistant, or remote
-checks; record those manual results below.
+It intentionally does not automate safety, TLS, Home Assistant, or visual
+focus/layout checks; record those manual results below.
 
 For a signed release APK, pass `-ApkPath app/build/outputs/apk/release/app-release.apk`
 and `-PackageName dev.haquickaccess.tv`.
@@ -81,10 +92,20 @@ existing authenticated ADB connection.
 
 ## Performance
 
-- From a cached grid, time launch-to-focused-control over ten cold/warm runs;
-  the release cold-start median target is no more than 1.5 seconds for cached interaction.
-- Trigger ten safe commands and confirm the tile displays pending feedback
-  within 100 ms before the Home Assistant response returns.
-- Capture `adb shell dumpsys gfxinfo dev.haquickaccess.tv` while navigating a
-  large grid. Investigate visible jank, repeated allocations, or dropped focus
-  before distributing the release APK.
+- Populate a 30-tile grid, launch it once, and wait for live state to be ready.
+  The helper then records ten cold and warm launches. The release cold-start
+  median target is no more than 1.5 seconds to a cached, focused control.
+- Record ten safe command selections at 120 fps or faster with the Home
+  Assistant response delayed enough to keep `Pending` visible. For each sample,
+  count frames from the Select press being registered through the first frame
+  showing pending feedback, then calculate `frames / capture_fps * 1000`.
+  Supply the ten millisecond values with `-PendingLatencyMs`; every sample must
+  be at most 100 ms. Keep the video or frame annotations with the run output.
+- The helper repeats the same D-pad journey as Macrobenchmark five times,
+  parses `dumpsys gfxinfo ... framestats`, and reports frame-overrun P50, P90,
+  P95, and P99. The release gate requires P95 at most 0 ms. On older Shield
+  firmware without `FrameDeadline`, it reports a warning and uses
+  `IntendedVsync` plus the reported or measured display interval.
+- Watch the traversal while it runs and confirm there is no dropped focus,
+  overlapping scaled cards, clipped rows, or modal focus theft. Save the full
+  console output alongside the signed APK and visual evidence.

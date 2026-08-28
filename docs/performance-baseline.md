@@ -30,4 +30,4 @@ The profiled emulator cold-start trend is below the 1.5-second target. Consecuti
 - [ ] Physical Shield Pro command pending feedback appears within 100 ms.
 - [ ] Physical Shield Pro DPAD frame-overrun P95 is at most 0 ms.
 
-Run `./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest` for emulator trend data. Run `tools/validate-shield.ps1` for the physical release gate and save its output with the release evidence.
+Run `./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest` for emulator trend data. Run `tools/validate-shield.ps1 -SelfTest` to verify the evidence parser, then follow `docs/shield-pro-validation.md` for the fail-closed physical release gate and save its output with the video/frame annotations.

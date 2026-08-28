@@ -15,6 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Self-test Shield validation helper
+        shell: pwsh
+        run: ./tools/validate-shield.ps1 -SelfTest
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
       - uses: actions/setup-java@v6
