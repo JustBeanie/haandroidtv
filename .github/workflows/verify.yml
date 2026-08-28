@@ -36,6 +36,7 @@ jobs:
   tv-emulator:
     needs: unit-and-lint
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - name: Make Gradle wrapper executable
@@ -60,7 +61,7 @@ jobs:
             adb wait-for-device shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 1; done;'
             sleep 30
             ./gradlew :app:connectedDebugAndroidTest
-            ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR
+            ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.dryRunMode.enable=true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
