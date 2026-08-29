@@ -17,6 +17,24 @@ Device fixture: API 36 Android TV x86_64 emulator at 1920×1080 with 30 determin
 
 The profiled emulator cold-start trend is below the 1.5-second target. Consecutive profiled runs produced frame-overrun P95 values from -2.3 ms to 16.0 ms, illustrating substantial emulator timing variance; rerun the authoritative frame gate on the Shield.
 
+## 2026-08-28 physical Shield four-tile evidence
+
+The configured physical Shield dashboard contained four tiles. The retained
+measurements are:
+
+- Cold startup: 410.5 ms median; 486 ms P95 and maximum.
+- Warm startup: 105.5 ms median; 193 ms P95 and maximum.
+- DPAD traversal frame overrun across 120 frames: P50 -11.15 ms,
+  P90 -8.74 ms, P95 -1.21 ms, and P99 -0.54 ms.
+- `gfxinfo`: 0 janky frames and 0 missed-vsync, input, UI-thread, upload,
+  draw, and deadline misses.
+
+The user explicitly approved **WAIVED — no ≥120-fps pending sample gate** and
+**WAIVED — no physical 30-tile coverage requirement** for this release. The
+four-tile Shield measurements remain physical evidence; they do not claim
+30-tile physical coverage. The API 36 emulator and CI retain the 30-tile
+benchmark coverage documented above.
+
 ## Release checklist
 
 - [x] `ReportDrawnWhen` reports the configured dashboard only after initial focus restoration.
@@ -24,12 +42,18 @@ The profiled emulator cold-start trend is below the 1.5-second target. Consecuti
 - [x] Cached cards are visually identified and cannot execute commands.
 - [x] Pending, success, and persistent inline failure command states are covered by tests.
 - [x] 1080p shows two complete dashboard rows; primary controls fit at 720p.
-- [x] CI executes single-loop cold/warm/Home-return and 30-tile DPAD benchmark verification and retains JSON/traces; full iterations run locally and on the Shield.
+- [x] CI executes single-loop cold/warm/Home-return and 30-tile DPAD benchmark
+  verification and retains JSON/traces; emulator 30-tile coverage remains.
 - [x] A generated Baseline Profile and startup profile are packaged in release builds.
-- [ ] Physical Shield Pro cold-start median is at most 1.5 seconds.
+- [x] Physical Shield Pro four-tile cold-start median is 410.5 ms, below 1.5 seconds.
 - [ ] Physical Shield Pro command pending feedback appears within 100 ms. This
-  measurement is explicitly user-waived for the current release, remains
-  unmeasured, and must be recorded as `WAIVED`, not passed.
-- [ ] Physical Shield Pro DPAD frame-overrun P95 is at most 0 ms.
+  measurement is explicitly user-waived for the current release: no ≥120-fps
+  pending sample gate. It remains unmeasured and is recorded as `WAIVED`, not
+  passed.
+- [ ] Physical Shield Pro 30-tile coverage is explicitly user-waived for the
+  current release. The measured four-tile results are retained; emulator
+  30-tile coverage remains.
+- [x] Physical Shield Pro four-tile DPAD frame-overrun P95 is -1.21 ms across
+  120 frames, meeting the at-most-0-ms frame gate.
 
-Run `./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest` for emulator trend data. Run `tools/validate-shield.ps1 -SelfTest` to verify the evidence parser, then follow `docs/shield-pro-validation.md` for the fail-closed physical release gate and save its output with the video/frame annotations. When the pending-feedback test has explicit user approval to be waived, pass `-SkipPendingFeedback`; this changes only that gate to `WAIVED` and leaves cold-start, frame-overrun, and manual evidence requirements in force.
+Run `./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest` for emulator trend data. Run `tools/validate-shield.ps1 -SelfTest` to verify the evidence parser, then follow `docs/shield-pro-validation.md` for the fail-closed physical release gate and save its output with the video/frame annotations. For the current user-approved pending-feedback waiver, pass `-SkipPendingFeedback`; this changes only that helper gate to `WAIVED`. The physical 30-tile coverage waiver is documented evidence scope and does not change validator behavior. Cold-start, frame-overrun, emulator 30-tile coverage, and manual evidence remain recorded separately.
