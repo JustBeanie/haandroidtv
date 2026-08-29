@@ -38,16 +38,23 @@ function New-QueueItem {
         [string]$Kind = 'work',
         [string]$Validates = '',
         [string]$RepairsValidation = '',
+        [string]$ReplacesValidation = '',
+        [string]$Objective = '',
+        [string[]]$AcceptanceCriteria = @(),
         [string[]]$WriteScope = @(),
         [bool]$RequiresApproval = $false,
         [string]$ApprovalKey = ''
     )
+    if ([string]::IsNullOrWhiteSpace($Objective)) { $Objective = "Objective for $Id" }
+    if ($AcceptanceCriteria.Count -eq 0) { $AcceptanceCriteria = @("Acceptance criterion for $Id") }
     return [ordered]@{
         id = $Id
         kind = $Kind
         validates = $Validates
         repairs_validation = $RepairsValidation
-        objective = "Objective for $Id"
+        replaces_validation = $ReplacesValidation
+        objective = $Objective
+        acceptance_criteria = @($AcceptanceCriteria)
         depends_on = @($DependsOn)
         status = 'queued'
         attempts = 0
@@ -66,7 +73,7 @@ function New-QueueItem {
 function New-Ledger {
     param([string]$Name, [object[]]$Items, [int]$Concurrency = 2)
     $path = Join-Path $testRoot "$Name.json"
-    [ordered]@{ version = 2; concurrency_limit = $Concurrency; approvals = @(); items = @($Items) } |
+    [ordered]@{ version = 3; concurrency_limit = $Concurrency; approvals = @(); items = @($Items) } |
         ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $path -Encoding utf8
     return $path
 }
@@ -110,6 +117,20 @@ try {
             (New-QueueItem 'right' -DependsOn @('left'))
         )
         Assert-Throws { Invoke-Queue @{ Command='validate'; Ledger=$path } } 'Dependency cycle' 'Cyclic queue was accepted'
+    }
+
+    Run-Test 'substantive items require objective and acceptance criteria' {
+        $missingObjective = New-Ledger 'missing-objective' @((New-QueueItem 'work'))
+        $state = Read-State $missingObjective
+        $state.items[0].objective = ' '
+        $state | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $missingObjective -Encoding utf8
+        Assert-Throws { Invoke-Queue @{ Command='validate'; Ledger=$missingObjective } } 'non-empty objective' 'Blank objective was accepted'
+
+        $missingCriteria = New-Ledger 'missing-criteria' @((New-QueueItem 'work'))
+        $state = Read-State $missingCriteria
+        $state.items[0].acceptance_criteria = @(' ', '')
+        $state | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $missingCriteria -Encoding utf8
+        Assert-Throws { Invoke-Queue @{ Command='validate'; Ledger=$missingCriteria } } 'non-empty acceptance_criteria' 'Blank acceptance criteria were accepted'
     }
 
     Run-Test 'concurrency cap' {
@@ -187,7 +208,8 @@ try {
             (New-QueueItem 'verify-original' -DependsOn @('produce') -Kind 'validation' -Validates 'produce' -MaxAttempts 2),
             (New-QueueItem 'verify-bypass' -DependsOn @('produce') -Kind 'validation' -Validates 'produce'),
             (New-QueueItem 'repair-after-failure' -Kind 'repair' -RepairsValidation 'verify-original' -RequiresApproval $true -ApprovalKey 'repair-approved'),
-            (New-QueueItem 'verify-repair' -DependsOn @('repair-after-failure') -Kind 'validation' -Validates 'repair-after-failure')
+            (New-QueueItem 'verify-repair' -DependsOn @('repair-after-failure') -Kind 'validation' -Validates 'repair-after-failure' -ReplacesValidation 'verify-original'),
+            (New-QueueItem 'consumer' -DependsOn @('verify-original'))
         )
         Invoke-Queue @{ Command='claim'; Ledger=$path; Item='produce'; Agent='agent-producer' }
         Invoke-Queue @{ Command='pass'; Ledger=$path; Item='produce'; Agent='agent-producer'; Evidence='artifact created' }
@@ -200,6 +222,7 @@ try {
         Assert-Equal 2 $failedState.items[1].max_attempts 'Regression did not exercise attempts remaining'
         Assert-Throws { Invoke-Queue @{ Command='claim'; Ledger=$path; Item='verify-original'; Agent='agent-validator-2' } } 'not queued' 'Original validation retried before repair'
         Assert-Throws { Invoke-Queue @{ Command='claim'; Ledger=$path; Item='verify-bypass'; Agent='agent-validator-2' } } 'unresolved failed validation' 'Fresh validation bypassed repair'
+        Assert-Throws { Invoke-Queue @{ Command='claim'; Ledger=$path; Item='consumer'; Agent='agent-consumer' } } 'has not passed or been replaced' 'Consumer bypassed failed validation lineage'
         Assert-Throws { Invoke-Queue @{ Command='claim'; Ledger=$path; Item='repair-after-failure'; Agent='agent-repair' } } 'has not been recorded' 'Repair bypassed its approval gate'
         Invoke-Queue @{ Command='approve'; Ledger=$path; Approval='repair-approved' }
         Assert-Throws { Invoke-Queue @{ Command='claim'; Ledger=$path; Item='repair-after-failure'; Agent='agent-validator-1' } } 'not fresh' 'Failed validator was reused as repair worker'
@@ -210,6 +233,8 @@ try {
         Invoke-Queue @{ Command='claim'; Ledger=$path; Item='verify-repair'; Agent='agent-validator-2' }
         Invoke-Queue @{ Command='pass'; Ledger=$path; Item='verify-repair'; Agent='agent-validator-2'; Evidence='fresh validator passed repaired artifact' }
         Assert-Equal 'passed' (Read-State $path).items[4].status 'Fresh validation did not pass after repair'
+        Invoke-Queue @{ Command='claim'; Ledger=$path; Item='consumer'; Agent='agent-consumer' }
+        Assert-Equal 'in_progress' (Read-State $path).items[5].status 'Consumer did not accept passing replacement validation lineage'
     }
 
     Run-Test 'approval precedes risky mutation' {
@@ -243,7 +268,7 @@ try {
         Assert-True ($properties -contains 'status' -and $properties -contains 'attempts') 'Status omitted queue facts'
         Assert-True ($properties -notcontains 'transcript' -and $properties -notcontains 'reasoning') 'Status leaked worker narrative'
         $scenarioIds = @((Get-Content -LiteralPath $scenarioFile -Raw | ConvertFrom-Json).scenarios.id)
-        $expected = @('dependency-gating', 'acyclic-dependencies', 'concurrency-cap', 'fresh-agent-every-attempt', 'isolated-context', 'write-scope-serialization', 'retry-exhaustion', 'independent-validation', 'repair-before-revalidation', 'evidence-required', 'approval-before-risk', 'orchestrator-only', 'compact-status')
+        $expected = @('dependency-gating', 'acyclic-dependencies', 'required-item-fields', 'concurrency-cap', 'fresh-agent-every-attempt', 'isolated-context', 'write-scope-serialization', 'retry-exhaustion', 'independent-validation', 'repair-before-revalidation', 'replacement-validation-lineage', 'evidence-required', 'approval-before-risk', 'orchestrator-only', 'compact-status')
         Assert-Equal $expected.Count $scenarioIds.Count 'Scenario list count drifted from executable tests'
         foreach ($id in $expected) { Assert-True ($scenarioIds -contains $id) "Scenario '$id' is missing" }
     }

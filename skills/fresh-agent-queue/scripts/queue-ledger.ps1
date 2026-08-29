@@ -85,9 +85,31 @@ function Test-ScopeOverlap {
     return $false
 }
 
+function Test-DependencySatisfied {
+    param([object]$State, [string]$DependencyId)
+
+    $pending = [System.Collections.Generic.Queue[string]]::new()
+    $visited = [System.Collections.Generic.HashSet[string]]::new()
+    $pending.Enqueue($DependencyId)
+    while ($pending.Count -gt 0) {
+        $currentId = $pending.Dequeue()
+        if (-not $visited.Add($currentId)) { continue }
+        $current = Get-ItemById $State $currentId
+        if ([string]$current.status -eq 'passed') { return $true }
+        if ([string]$current.kind -ne 'validation') { continue }
+        foreach ($replacement in @($State.items | Where-Object {
+            [string]$_.kind -eq 'validation' -and
+            [string]$_.replaces_validation -eq $currentId
+        })) {
+            $pending.Enqueue([string]$replacement.id)
+        }
+    }
+    return $false
+}
+
 function Assert-Ledger {
     param([object]$State)
-    if ([int]$State.version -ne 2) { throw 'Ledger version must be 2.' }
+    if ([int]$State.version -ne 3) { throw 'Ledger version must be 3.' }
     if ([int]$State.concurrency_limit -lt 1) { throw 'concurrency_limit must be at least 1.' }
 
     $ids = @($State.items | ForEach-Object { [string]$_.id })
@@ -98,6 +120,9 @@ function Assert-Ledger {
     $allAgents = [System.Collections.Generic.List[string]]::new()
     foreach ($queueItem in $State.items) {
         if ([string]::IsNullOrWhiteSpace([string]$queueItem.id)) { throw 'Every queue item needs an ID.' }
+        if ([string]::IsNullOrWhiteSpace([string]$queueItem.objective)) { throw "'$($queueItem.id)' needs a non-empty objective." }
+        $acceptanceCriteria = @($queueItem.acceptance_criteria | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        if ($acceptanceCriteria.Count -eq 0) { throw "'$($queueItem.id)' needs non-empty acceptance_criteria." }
         if ($knownKinds -notcontains [string]$queueItem.kind) { throw "Invalid kind on '$($queueItem.id)'." }
         if ($knownStatuses -notcontains [string]$queueItem.status) { throw "Invalid status on '$($queueItem.id)'." }
         if ([int]$queueItem.max_attempts -lt 1) { throw "'$($queueItem.id)' needs max_attempts of at least 1." }
@@ -142,6 +167,27 @@ function Assert-Ledger {
             }
             if ([string]$queueItem.status -eq 'failed' -and [string]::IsNullOrWhiteSpace([string]$queueItem.last_failure)) {
                 throw "Failed validation item '$($queueItem.id)' needs failure evidence."
+            }
+            $validationTarget = Get-ItemById $State ([string]$queueItem.validates)
+            if ([string]$validationTarget.kind -eq 'repair') {
+                if ([string]::IsNullOrWhiteSpace([string]$queueItem.replaces_validation)) {
+                    throw "Validation item '$($queueItem.id)' must name the failed validation it replaces."
+                }
+                if ([string]$queueItem.replaces_validation -ne [string]$validationTarget.repairs_validation) {
+                    throw "Validation item '$($queueItem.id)' does not replace the validation repaired by '$($validationTarget.id)'."
+                }
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace([string]$queueItem.replaces_validation)) {
+                throw "Replacement validation '$($queueItem.id)' must validate a repair item."
+            }
+            if (-not [string]::IsNullOrWhiteSpace([string]$queueItem.replaces_validation)) {
+                if ($ids -notcontains [string]$queueItem.replaces_validation) {
+                    throw "Replaced validation '$($queueItem.replaces_validation)' does not exist."
+                }
+                $replacedValidation = Get-ItemById $State ([string]$queueItem.replaces_validation)
+                if ([string]$replacedValidation.kind -ne 'validation') {
+                    throw "Replacement validation '$($queueItem.id)' must replace another validation item."
+                }
             }
         }
         if ([string]$queueItem.kind -eq 'repair') {
@@ -224,6 +270,7 @@ if ($Command -eq 'status') {
             block_reason = $queueItem.block_reason
             validates = $queueItem.validates
             repairs_validation = $queueItem.repairs_validation
+            replaces_validation = $queueItem.replaces_validation
         }
     }
     $summary | ConvertTo-Json -Depth 5 -Compress
@@ -256,7 +303,9 @@ switch ($Command) {
         }
         foreach ($dependencyId in @($target.depends_on)) {
             $dependency = Get-ItemById $state ([string]$dependencyId)
-            if ($dependency.status -ne 'passed') { throw "Dependency '$dependencyId' has not passed." }
+            if (-not (Test-DependencySatisfied $state ([string]$dependencyId))) {
+                throw "Dependency '$dependencyId' has not passed or been replaced by a passing validation."
+            }
             if ($target.kind -ne 'validation' -and $dependency.kind -ne 'validation') {
                 throw "Dependency '$dependencyId' is implemented but not independently verified."
             }

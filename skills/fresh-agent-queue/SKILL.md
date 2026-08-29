@@ -33,7 +33,7 @@ Do not include earlier agents' speculation, hidden conclusions, or a proposed an
 
 Use [references/acceptance-scenarios.json](references/acceptance-scenarios.json) as the maintained list of queue behaviors this skill must preserve. For file-backed coordination, use `scripts/queue-ledger.ps1`; its status output is intentionally compact.
 
-The ledger schema is version 2. A validation failure is terminal for that queue item and uses status `failed`, even when the item has unused attempts. Add a distinct `kind: repair` item whose `repairs_validation` names the failed validation, then add a distinct validation item that both depends on and validates the repair item. The helper prevents the repair from starting before its named validation has failed, prevents direct revalidation of an artifact with an unresolved failed validation, and preserves any approval requirement on the repair. Do not reset, requeue, or repurpose the original validation item.
+The ledger schema is version 3. Every item requires a non-empty `objective` and at least one non-empty `acceptance_criteria` entry. A validation failure is terminal for that queue item and uses status `failed`, even when the item has unused attempts. Add a distinct `kind: repair` item whose `repairs_validation` names the failed validation, then add a distinct validation item that both depends on and validates the repair item and sets `replaces_validation` to the failed validation. The helper prevents the repair from starting before its named validation has failed, prevents direct revalidation of an artifact with an unresolved failed validation, and preserves any approval requirement on the repair. Once the explicitly linked replacement validation passes, consumers that still depend on the failed validation are satisfied through that replacement lineage. Do not reset, requeue, repurpose, or manually mark the original validation item passed.
 
 ## Dispatch loop
 
@@ -42,7 +42,7 @@ The ledger schema is version 2. A validation failure is terminal for that queue 
 3. Record the unique agent ID and `fork_turns: "none"` at claim time. Count every started attempt, including crashed or interrupted attempts.
 4. Wait for results without busy polling. While work is active, give the user short milestone updates and do not leave them without an update for more than 60 seconds.
 5. Accept a work item only with concrete evidence matching its criteria: changed paths, command results, test counts, screenshots, or other inspectable output as appropriate.
-6. Queue fresh-agent validation after production passes. If validation fails, leave that item `failed`, queue a fresh repair item linked with `repairs_validation`, and follow it with a separate validation item that validates the completed repair.
+6. Queue fresh-agent validation after production passes. If validation fails, leave that item `failed`, queue a fresh repair item linked with `repairs_validation`, and follow it with a separate validation item that validates the completed repair and names the failed validation in `replaces_validation`.
 7. Finish only when all required items and their independent validation items have passed.
 
 The orchestrator may use the ledger helper for administrative state changes. Running the helper is orchestration, not substantive task work.
@@ -53,7 +53,7 @@ The orchestrator may use the ledger helper for administrative state changes. Run
 - Every retry uses a new agent and a clean dispatch packet containing the failed acceptance evidence, not the prior agent's full transcript.
 - Do not automatically retry destructive or externally mutating actions. Stop and request any missing authorization.
 - When attempts are exhausted, mark the item blocked and propagate that state to dependents. Name the failed criterion and the minimum user action or external change needed.
-- Capacity exhaustion is `waiting`, not `blocked`; dispatch when a slot opens.
+- Capacity exhaustion leaves the item `queued` in the ledger; describe the orchestration condition as waiting, not blocked, and dispatch when a slot opens.
 - If worker results conflict, queue a fresh adjudication item rather than deciding the technical question in the orchestrator.
 - If collaboration tools are unavailable, report that the queue-only contract cannot be honored and stop. The main agent must not silently do the work itself.
 

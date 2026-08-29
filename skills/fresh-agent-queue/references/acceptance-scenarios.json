@@ -10,6 +10,10 @@
       "requirement": "Unknown, self-referential, and cyclic dependency graphs are rejected before dispatch."
     },
     {
+      "id": "required-item-fields",
+      "requirement": "Every substantive queue item has a non-empty objective and at least one non-empty acceptance criterion."
+    },
+    {
       "id": "concurrency-cap",
       "requirement": "Active work never exceeds the declared concurrency limit."
     },
@@ -36,6 +40,10 @@
     {
       "id": "repair-before-revalidation",
       "requirement": "A failed validation item is terminal even with attempts remaining; a fresh approved repair item must complete before a distinct fresh validation item can start."
+    },
+    {
+      "id": "replacement-validation-lineage",
+      "requirement": "A passing replacement validation explicitly linked to the failed validation satisfies downstream consumers of that failed validation lineage."
     },
     {
       "id": "evidence-required",
