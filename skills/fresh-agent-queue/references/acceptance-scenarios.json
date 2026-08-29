@@ -1,0 +1,57 @@
+{
+  "purpose": "Machine-readable list of behavioral requirements for the fresh-agent queue.",
+  "scenarios": [
+    {
+      "id": "dependency-gating",
+      "requirement": "A consumer cannot start until a fresh validator has verified every material dependency."
+    },
+    {
+      "id": "acyclic-dependencies",
+      "requirement": "Unknown, self-referential, and cyclic dependency graphs are rejected before dispatch."
+    },
+    {
+      "id": "concurrency-cap",
+      "requirement": "Active work never exceeds the declared concurrency limit."
+    },
+    {
+      "id": "fresh-agent-every-attempt",
+      "requirement": "An agent identifier is used for exactly one queue attempt across the ledger."
+    },
+    {
+      "id": "isolated-context",
+      "requirement": "Every worker dispatch uses fork_turns none and records a subagent role."
+    },
+    {
+      "id": "write-scope-serialization",
+      "requirement": "Concurrent items cannot have equal, ancestor, or descendant write scopes."
+    },
+    {
+      "id": "retry-exhaustion",
+      "requirement": "Failures consume attempts and exhaustion blocks the item and its dependents."
+    },
+    {
+      "id": "independent-validation",
+      "requirement": "A validator is fresh and cannot be the producer of the artifact it validates."
+    },
+    {
+      "id": "repair-before-revalidation",
+      "requirement": "A failed validation item is terminal even with attempts remaining; a fresh approved repair item must complete before a distinct fresh validation item can start."
+    },
+    {
+      "id": "evidence-required",
+      "requirement": "No item can pass without non-empty acceptance evidence."
+    },
+    {
+      "id": "approval-before-risk",
+      "requirement": "An item marked as approval-requiring cannot start until its approval key is recorded."
+    },
+    {
+      "id": "orchestrator-only",
+      "requirement": "Substantive queue items cannot be assigned to the orchestrator or any non-subagent actor."
+    },
+    {
+      "id": "compact-status",
+      "requirement": "Status output contains queue facts and evidence, not worker reasoning transcripts."
+    }
+  ]
+}
