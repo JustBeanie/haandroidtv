@@ -52,7 +52,12 @@ function Get-Median {
 }
 
 function Convert-GfxInfoToFrameOverruns {
-    param([Parameter(Mandatory = $true)][string[]]$Lines)
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [AllowEmptyString()]
+        [string[]]$Lines
+    )
 
     $headers = $null
     $headerMap = @{}
@@ -157,6 +162,16 @@ function Invoke-SelfTest {
         throw "Legacy gfxinfo parser self-test failed."
     }
 
+    $blankLines = Convert-GfxInfoToFrameOverruns -Lines @("", " ", "No framestats available")
+    if ($blankLines.Values.Count -ne 0 -or $blankLines.UsedEstimatedDeadline) {
+        throw "Blank-line gfxinfo parser self-test failed."
+    }
+
+    $missing = Convert-GfxInfoToFrameOverruns -Lines @()
+    if ($missing.Values.Count -ne 0 -or $missing.UsedEstimatedDeadline) {
+        throw "Missing gfxinfo parser self-test failed."
+    }
+
     $percentile = Get-Percentile -Values @(-5.0, -1.0, 2.0, 7.0, 11.0) -Percentile 0.95
     if ($percentile -ne 11.0) { throw "Percentile self-test failed." }
 
@@ -176,6 +191,16 @@ function Invoke-SelfTest {
         -PendingValues @(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0) `
         -PendingResults ([pscustomobject]@{ Maximum = 9.0 }))
     if ($invalidFailures.Count -ne 4) { throw "Fail-closed release-gate self-test failed." }
+
+    $missingPendingFailures = @(Get-ReleaseValidationFailures `
+        -ColdResults ([pscustomobject]@{ Count = 10; Median = 1500.0 }) `
+        -FrameResults ([pscustomobject]@{ Count = 30; P95 = 0.0 }) `
+        -PendingValues @() `
+        -PendingResults $null)
+    if ($missingPendingFailures.Count -ne 1 -or
+        $missingPendingFailures[0] -ne "exactly ten pending-feedback latency samples are required; received 0") {
+        throw "Missing pending-feedback release-gate self-test failed."
+    }
     Write-Host "Shield validation self-test passed."
 }
 
@@ -230,7 +255,7 @@ function Measure-FrameOverrun {
     $gfxInfo = Invoke-Adb -Arguments @("shell", "dumpsys", "gfxinfo", $PackageName, "framestats")
     $parsed = Convert-GfxInfoToFrameOverruns -Lines $gfxInfo
     if ($parsed.Values.Count -eq 0) {
-        throw "No valid gfxinfo frame records were captured. Confirm the configured dashboard is visible and rerun."
+        throw "No valid gfxinfo framestats records were captured for '$PackageName'. Confirm the configured dashboard is visible and that dumpsys gfxinfo reports framestats, then rerun."
     }
     if ($parsed.UsedEstimatedDeadline) {
         Write-Warning "FrameDeadline was unavailable; overrun used IntendedVsync plus the reported or estimated frame interval."
@@ -262,7 +287,7 @@ function Get-ReleaseValidationFailures {
     param(
         [AllowNull()][object]$ColdResults,
         [Parameter(Mandatory = $true)][object]$FrameResults,
-        [Parameter(Mandatory = $true)][double[]]$PendingValues,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][double[]]$PendingValues,
         [AllowNull()][object]$PendingResults
     )
     $failures = [System.Collections.Generic.List[string]]::new()
