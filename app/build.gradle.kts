@@ -1,4 +1,5 @@
 import java.util.Properties
+import com.android.build.api.variant.BuildConfigField
 
 plugins {
     alias(libs.plugins.android.application)
@@ -7,6 +8,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kover)
+    alias(libs.plugins.baselineprofile)
 }
 
 val releaseSigningProperties = Properties()
@@ -32,6 +34,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        buildConfigField("boolean", "BENCHMARK_MODE", "false")
     }
 
     buildFeatures {
@@ -70,11 +73,32 @@ android {
                 "proguard-rules.pro",
             )
         }
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+            buildConfigField("boolean", "BENCHMARK_MODE", "true")
+        }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+// The Baseline Profile plugin synthesizes these variants from release. Keep
+// the deterministic fixture unavailable in production while enabling it in
+// the generated APKs used for profile collection and macrobenchmarks.
+listOf("benchmarkRelease", "nonMinifiedRelease").forEach { variantName ->
+    androidComponents.onVariants(
+        androidComponents.selector().withName(variantName),
+    ) { variant ->
+        variant.buildConfigFields?.put(
+            "BENCHMARK_MODE",
+            BuildConfigField("boolean", "true", "Enabled only for benchmarks."),
+        )
     }
 }
 
@@ -116,6 +140,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.tvprovider)
+    implementation(libs.profileinstaller)
+    "baselineProfile"(project(":benchmark"))
 
     testImplementation(libs.junit)
     testImplementation(kotlin("test"))

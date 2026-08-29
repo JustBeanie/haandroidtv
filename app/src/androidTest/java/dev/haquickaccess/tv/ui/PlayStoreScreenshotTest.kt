@@ -50,7 +50,7 @@ class PlayStoreScreenshotTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.onNodeWithText("Connect Home Assistant").assertExists()
@@ -75,7 +75,7 @@ class PlayStoreScreenshotTest {
 
         composeRule.setContent {
             val state by viewModel.uiState.collectAsState()
-            HaQuickAccessApp(state, null, null, viewModel)
+            HaQuickAccessApp(state, viewModel)
         }
 
         composeRule.waitUntil(5_000) {

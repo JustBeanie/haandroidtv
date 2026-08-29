@@ -2,6 +2,7 @@ package dev.haquickaccess.tv.ui
 
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -64,10 +65,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
@@ -102,24 +105,23 @@ import dev.haquickaccess.tv.domain.model.selectOptions
 import kotlin.math.roundToInt
 import java.util.Locale
 
-private val HaBackground = Color(0xFF080D19)
-private val HaSurface = Color(0xFF121B2C)
-private val HaSurfaceFocused = Color(0xFF1A2942)
-private val HaBorder = Color(0xFF263753)
-private val HaBlue = Color(0xFF59D5FF)
-private val HaGreen = Color(0xFF4CAF50)
-private val HaAmber = Color(0xFFFF9800)
-private val HaCyan = Color(0xFF9CE7FF)
-private val HaRed = Color(0xFFFF6B78)
-private val HaText = Color(0xFFF6F8FF)
-private val HaMuted = Color(0xFFAFBED4)
-private val HaViolet = Color(0xFFAA9CFF)
+internal val HaBackground = Color(0xFF080D19)
+internal val HaSurface = Color(0xFF121B2C)
+internal val HaSurfaceFocused = Color(0xFF1A2942)
+internal val HaSurfaceActive = Color(0xFF211F1C)
+internal val HaBorder = Color(0xFF263753)
+internal val HaBlue = Color(0xFF59D5FF)
+internal val HaGreen = Color(0xFF4CAF50)
+internal val HaAmber = Color(0xFFFF9800)
+internal val HaCyan = Color(0xFF9CE7FF)
+internal val HaRed = Color(0xFFFF6B78)
+internal val HaText = Color(0xFFF6F8FF)
+internal val HaMuted = Color(0xFFAFBED4)
+internal val HaViolet = Color(0xFFAA9CFF)
 
 @Composable
 fun HaQuickAccessApp(
     state: DashboardUiState,
-    deepLinkEntityId: String?,
-    deepLinkBehavior: String?,
     onEvent: DashboardViewModel,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -155,44 +157,14 @@ fun HaQuickAccessApp(
         }
     }
 
-    var handledDeepLink by remember(deepLinkEntityId, deepLinkBehavior) { mutableStateOf(false) }
-    LaunchedEffect(
-        deepLinkEntityId,
-        deepLinkBehavior,
-        state.isSettingsLoaded,
-        state.areInitialStatesLoaded,
-        state.connectionStatus,
-        state.entities,
-    ) {
-        if (handledDeepLink) return@LaunchedEffect
-        val entityId = deepLinkEntityId ?: return@LaunchedEffect
-        if (!state.isSettingsLoaded) return@LaunchedEffect
-        if (!state.areInitialStatesLoaded) {
-            if (state.connectionStatus is ConnectionStatus.Failed) {
-                onEvent.showMissingLauncherShortcut(entityId, deepLinkBehavior)
-                handledDeepLink = true
-            }
-            return@LaunchedEffect
-        }
-        state.entities[entityId]?.let { entity ->
-            when (deepLinkBehavior) {
-                "toggle" -> onEvent.performPrimaryAction(entity)
-                "details" -> onEvent.openShortcutDetails(entity)
-                "focus" -> onEvent.focusEntity(entity.entityId)
-                else -> onEvent.openShortcutDetails(entity)
-            }
-            handledDeepLink = true
-        } ?: run {
-            val terminalConnectionState = state.connectionStatus is ConnectionStatus.Failed
-            if (state.areInitialStatesLoaded || terminalConnectionState) {
-                onEvent.showMissingLauncherShortcut(entityId, deepLinkBehavior)
-                handledDeepLink = true
-            }
-        }
-    }
-
     MaterialTheme {
-        BoxWithConstraints(Modifier.fillMaxSize().background(HaBackground)) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxSize()
+                .background(HaBackground)
+                .semantics { testTagsAsResourceId = true }
+                .testTag("app_root"),
+        ) {
             val horizontalSafeMargin = (maxWidth * .05f).coerceAtLeast(24.dp)
             val verticalSafeMargin = (maxHeight * .05f).coerceAtLeast(20.dp)
             Box(
@@ -263,6 +235,10 @@ private fun SetupScreen(state: DashboardUiState, onEvent: DashboardViewModel) {
         )
         Spacer(Modifier.height(14.dp))
         HaTextField("Long-lived access token", state.setupToken, onEvent::updateSetupToken, true)
+        state.setupErrorMessage?.let { message ->
+            Spacer(Modifier.height(10.dp))
+            HaText(message, 14.sp, HaRed)
+        }
         Spacer(Modifier.height(22.dp))
         HaButton(
             if (state.isSavingConnection) "Verifying…" else "Validate and save",
@@ -270,370 +246,6 @@ private fun SetupScreen(state: DashboardUiState, onEvent: DashboardViewModel) {
             primary = true,
             enabled = !state.isSavingConnection,
         )
-    }
-}
-
-@Composable
-private fun DashboardScreen(state: DashboardUiState, onEvent: DashboardViewModel) {
-    val gridState = rememberLazyGridState()
-    val settingsFocusRequester = remember { FocusRequester() }
-    val dashboardFocusRequester = remember { FocusRequester() }
-    var initialFocusTarget by remember { mutableStateOf<String?>(null) }
-    var restoredInitialPosition by remember { mutableStateOf(false) }
-    var focusedTile by remember { mutableStateOf<HaEntity?>(null) }
-    val restoredFocusIndex = state.tiles.indexOfFirst { it.entityId == state.settings.lastFocusedEntityId }
-    val contextTile = focusedTile?.takeIf { focused -> state.tiles.any { it.entityId == focused.entityId } }
-        ?: state.tiles.getOrNull(restoredFocusIndex)
-        ?: state.tiles.firstOrNull()
-    LaunchedEffect(state.tiles, state.focusRequest?.sequence) {
-        val requestedFocusIndex = state.focusRequest
-            ?.entityId
-            ?.let { targetEntityId -> state.tiles.indexOfFirst { it.entityId == targetEntityId } }
-            ?.takeIf { it >= 0 }
-        if (state.tiles.isNotEmpty() && (requestedFocusIndex != null || !restoredInitialPosition)) {
-            val targetIndex = requestedFocusIndex ?: restoredFocusIndex.takeIf { it >= 0 } ?: 0
-            gridState.scrollToItem(targetIndex)
-            // Lazy grid items are composed after the scroll request. Waiting for a
-            // rendered frame prevents a cold launch from briefly having no real
-            // D-pad target (and lets the first Select land on an unintended card).
-            withFrameNanos { }
-            initialFocusTarget = state.tiles[targetIndex].entityId
-            restoredInitialPosition = true
-        }
-    }
-    Column(Modifier.fillMaxSize()) {
-        DashboardHero(
-            status = state.connectionStatus,
-            controlCount = state.tiles.size,
-            onSettings = onEvent::openSettings,
-            focusRequester = settingsFocusRequester,
-            downFocusRequester = dashboardFocusRequester,
-        )
-        contextTile?.let { FocusedControlContext(it, it.entityId in state.pendingEntityIds) }
-        Spacer(Modifier.height(24.dp))
-        if (state.tiles.isEmpty()) {
-            EmptyDashboard(
-                onManage = onEvent::openTileManager,
-                requestInitialFocus = state.launcherRecovery == null,
-                focusRequester = dashboardFocusRequester,
-                upFocusRequester = settingsFocusRequester,
-            )
-        } else {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                HaText("QUICK CONTROLS", 12.sp, HaCyan)
-                Spacer(Modifier.width(10.dp))
-                HaText("${state.tiles.size} pinned", 12.sp, HaMuted)
-            }
-            Spacer(Modifier.height(12.dp))
-            BoxWithConstraints(Modifier.weight(1f)) {
-                val columnCount = when {
-                    maxWidth >= 1_500.dp -> 5
-                    maxWidth >= 1_000.dp -> 4
-                    else -> 3
-                }
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(columnCount),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
-                    state = gridState,
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    itemsIndexed(state.tiles, key = { _, entity -> entity.entityId }) { index, entity ->
-                        HomeAssistantTile(
-                            entity = entity,
-                            pending = entity.entityId in state.pendingEntityIds,
-                            onClick = { onEvent.performPrimaryAction(entity) },
-                            onLongClick = { onEvent.openDetails(entity) },
-                            onFocused = { focusedEntity ->
-                                focusedTile = focusedEntity
-                                onEvent.saveFocus(focusedEntity.entityId)
-                            },
-                            focusRequester = dashboardFocusRequester.takeIf { index == 0 },
-                            upFocusRequester = settingsFocusRequester.takeIf { index < columnCount },
-                            requestInitialFocus = entity.entityId == initialFocusTarget,
-                            onInitialFocusRequested = {
-                                initialFocusTarget = null
-                                state.focusRequest
-                                    ?.takeIf { it.entityId == entity.entityId }
-                                    ?.let { onEvent.acknowledgeFocusRequest(it.sequence) }
-                            },
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        HaText("D-pad to move   •   Select to control   •   Hold Select for details", 14.sp, HaMuted)
-    }
-}
-
-@Composable
-private fun DashboardHero(
-    status: ConnectionStatus,
-    controlCount: Int,
-    onSettings: () -> Unit,
-    focusRequester: FocusRequester,
-    downFocusRequester: FocusRequester,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(HaSurface.copy(alpha = .72f), RoundedCornerShape(24.dp))
-            .border(1.dp, HaBorder, RoundedCornerShape(24.dp))
-            .padding(horizontal = 22.dp, vertical = 17.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.size(48.dp).background(HaBlue.copy(alpha = .14f), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Outlined.Lightbulb, null, Modifier.size(26.dp), HaBlue)
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            HaText("HA Quick Access", 28.sp)
-            Spacer(Modifier.height(2.dp))
-            HaText("$controlCount controls ready for your remote", 14.sp, HaMuted)
-        }
-        val (label, color) = when (status) {
-            is ConnectionStatus.Connected -> "Home connected" to HaBlue
-            is ConnectionStatus.Connecting -> "Connecting" to HaAmber
-            is ConnectionStatus.Failed -> "Connection problem" to HaRed
-            ConnectionStatus.Disconnected -> "Offline" to HaMuted
-        }
-        Row(
-            Modifier.background(color.copy(alpha = .12f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.size(8.dp).background(color, CircleShape))
-            Spacer(Modifier.width(7.dp))
-            HaText(label, 13.sp, color)
-        }
-        Spacer(Modifier.width(16.dp))
-        HeaderSettingsButton(onSettings, focusRequester, downFocusRequester)
-    }
-}
-
-@Composable
-private fun HeaderSettingsButton(
-    onClick: () -> Unit,
-    focusRequester: FocusRequester,
-    downFocusRequester: FocusRequester,
-) {
-    var focused by remember { mutableStateOf(false) }
-    val focusScale by animateFloatAsState(
-        targetValue = if (focused) 1.08f else 1f,
-        animationSpec = tween(durationMillis = 120),
-        label = "settings focus scale",
-    )
-    Box(
-        Modifier
-            .size(48.dp)
-            .focusProperties { down = downFocusRequester }
-            .focusRequester(focusRequester)
-            .onFocusChanged { focused = it.isFocused }
-            .onPreviewKeyEvent { event ->
-                if (
-                    event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN &&
-                    event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN
-                ) {
-                    downFocusRequester.requestFocus()
-                    true
-                } else {
-                    false
-                }
-            }
-            .graphicsLayer {
-                scaleX = focusScale
-                scaleY = focusScale
-                shadowElevation = if (focused) 14.dp.toPx() else 0f
-            }
-            .semantics { contentDescription = "Settings"; role = Role.Button }
-            .background(if (focused) HaSurfaceFocused else HaSurface, CircleShape)
-            .border(if (focused) 2.dp else 1.dp, if (focused) HaBlue else HaBorder, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(Icons.Outlined.Settings, null, Modifier.size(24.dp), HaText)
-    }
-}
-
-@Composable
-private fun FocusedControlContext(entity: HaEntity, pending: Boolean) {
-    val actionHint = when {
-        pending -> "Updating Home Assistant…"
-        entity.unavailable -> "Unavailable — check Home Assistant"
-        entity.capabilities().canToggle -> "Select to toggle · Hold Select for details"
-        entity.capabilities().canActivate || entity.capabilities().canRun || entity.capabilities().canPress ->
-            "Select to run · Hold Select for details"
-        else -> "Select to view details"
-    }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(top = 14.dp)
-            .background(HaSurface.copy(alpha = .72f), RoundedCornerShape(16.dp))
-            .border(1.dp, HaBorder, RoundedCornerShape(16.dp))
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(tileIcon(entity.capabilities().kind), null, Modifier.size(22.dp), HaCyan)
-        Spacer(Modifier.width(10.dp))
-        HaText(entity.name, 16.sp)
-        Spacer(Modifier.width(12.dp))
-        HaText(actionHint, 14.sp, Modifier.weight(1f), HaMuted)
-    }
-}
-
-@Composable
-private fun EmptyDashboard(
-    onManage: () -> Unit,
-    requestInitialFocus: Boolean,
-    focusRequester: FocusRequester,
-    upFocusRequester: FocusRequester,
-) {
-    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Icon(Icons.Outlined.Lightbulb, null, Modifier.size(58.dp), HaCyan)
-        Spacer(Modifier.height(16.dp))
-        HaText("Choose your quick controls", 25.sp)
-        Spacer(Modifier.height(8.dp))
-        HaText("Add Home Assistant entities to your TV dashboard.", 16.sp, HaMuted)
-        Spacer(Modifier.height(20.dp))
-        HaButton(
-            label = "Manage controls",
-            onClick = onManage,
-            primary = true,
-            requestInitialFocus = requestInitialFocus,
-            focusRequester = focusRequester,
-            upFocusRequester = upFocusRequester,
-        )
-    }
-}
-
-@Composable
-private fun LauncherRecoveryDialog(recovery: LauncherRecovery, onEvent: DashboardViewModel) {
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .72f)), contentAlignment = Alignment.Center) {
-        Column(
-            Modifier
-                .width(560.dp)
-                .semantics { contentDescription = "Launcher shortcut unavailable" }
-                .background(HaSurface, RoundedCornerShape(18.dp))
-                .border(1.dp, HaBorder, RoundedCornerShape(18.dp))
-                .padding(28.dp),
-        ) {
-            Icon(Icons.Outlined.WarningAmber, null, Modifier.size(36.dp), HaAmber)
-            Spacer(Modifier.height(14.dp))
-            HaText("Shortcut needs attention", 25.sp)
-            Spacer(Modifier.height(8.dp))
-            HaText(recovery.message, 16.sp, HaMuted)
-            Spacer(Modifier.height(10.dp))
-            HaText("Choose a current Home Assistant control to replace it.", 15.sp, HaMuted)
-            Spacer(Modifier.height(24.dp))
-            HaButton("Manage controls", onEvent::openLauncherRecoveryControls, primary = true, requestInitialFocus = true)
-            Spacer(Modifier.height(12.dp))
-            HaText("Press Back to dismiss", 14.sp, HaMuted)
-        }
-    }
-}
-
-@Composable
-private fun HomeAssistantTile(
-    entity: HaEntity,
-    pending: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    onFocused: (HaEntity) -> Unit,
-    focusRequester: FocusRequester?,
-    upFocusRequester: FocusRequester?,
-    requestInitialFocus: Boolean,
-    onInitialFocusRequested: () -> Unit,
-) {
-    var focused by remember { mutableStateOf(false) }
-    var longPressHandled by remember { mutableStateOf(false) }
-    val localFocusRequester = remember { FocusRequester() }
-    val activeFocusRequester = focusRequester ?: localFocusRequester
-    val focusScale by animateFloatAsState(
-        targetValue = if (focused) 1.04f else 1f,
-        animationSpec = tween(durationMillis = 150),
-        label = "tile focus scale",
-    )
-    val capability = entity.capabilities()
-    val iconTint = when {
-        entity.unavailable || entity.domain == "alarm_control_panel" -> HaRed
-        entity.isOn -> HaAmber
-        else -> HaCyan
-    }
-    val stateLabel = when {
-        pending -> "Updating"
-        entity.unavailable -> "Unavailable"
-        entity.domain == "climate" -> listOfNotNull(entity.climateTarget()?.roundToInt()?.let { "$it°" }, entity.state.replaceFirstChar(Char::uppercase)).joinToString(" · ")
-        entity.levelPercent() != null -> "${entity.levelPercent()}%"
-        else -> entity.actionLabel()
-    }
-    Box(
-        modifier = Modifier
-            .then(if (upFocusRequester == null) Modifier else Modifier.focusProperties { up = upFocusRequester })
-            .focusRequester(activeFocusRequester)
-            .height(142.dp)
-            .fillMaxWidth()
-            .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused(entity) }
-            .onPreviewKeyEvent { event ->
-                val nativeEvent = event.nativeKeyEvent
-                when {
-                    upFocusRequester != null &&
-                        nativeEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP &&
-                        nativeEvent.action == AndroidKeyEvent.ACTION_DOWN -> {
-                        upFocusRequester.requestFocus()
-                        true
-                    }
-                    nativeEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER &&
-                        nativeEvent.action == AndroidKeyEvent.ACTION_DOWN && nativeEvent.isLongPress -> {
-                        if (!longPressHandled) onLongClick()
-                        longPressHandled = true
-                        true
-                    }
-                    nativeEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER &&
-                        nativeEvent.action == AndroidKeyEvent.ACTION_UP && longPressHandled -> {
-                        longPressHandled = false
-                        true
-                    }
-                    else -> false
-                }
-            }
-            .graphicsLayer {
-                scaleX = focusScale
-                scaleY = focusScale
-                shadowElevation = if (focused) 16.dp.toPx() else 0f
-            }
-            .background(if (focused) HaSurfaceFocused else HaSurface, RoundedCornerShape(20.dp))
-            .border(if (focused) 3.dp else 1.dp, if (focused) HaBlue else HaBorder, RoundedCornerShape(20.dp))
-            .semantics { contentDescription = "${entity.name}, $stateLabel"; role = Role.Button }
-            .combinedClickable(
-                // A pending command must not remove the currently focused card
-                // from the TV focus graph. Keep it focusable and ignore repeated
-                // Select presses until Home Assistant answers.
-                enabled = !entity.unavailable,
-                onClick = { if (!pending) onClick() },
-                onLongClick = onLongClick,
-            )
-            .padding(18.dp),
-    ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Icon(
-                tileIcon(capability.kind),
-                null,
-                Modifier.size(42.dp).background(iconTint.copy(alpha = .18f), CircleShape).padding(10.dp),
-                iconTint,
-            )
-            HaText(stateLabel, 14.sp, if (entity.unavailable) HaRed else iconTint)
-        }
-        HaText(entity.name, 17.sp, Modifier.align(Alignment.BottomStart), HaText)
-    }
-    LaunchedEffect(requestInitialFocus) {
-        if (requestInitialFocus) {
-            activeFocusRequester.requestFocus()
-            onInitialFocusRequested()
-        }
     }
 }
 
@@ -1226,24 +838,15 @@ private fun EntityListItem(
 
 @Composable
 private fun DetailDialog(detail: DetailState, onEvent: DashboardViewModel) {
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .72f)), contentAlignment = Alignment.Center) {
-        Column(
-            Modifier
-                .width(600.dp)
-                .semantics { contentDescription = "Control details" }
-                .background(HaSurface, RoundedCornerShape(18.dp))
-                .border(1.dp, HaBorder, RoundedCornerShape(18.dp))
-                .padding(28.dp),
-        ) {
-            when (detail) {
-                is DetailState.Level -> LevelDetails(detail, onEvent)
-                is DetailState.Climate -> ClimateDetails(detail, onEvent)
-                is DetailState.Cover -> CoverDetails(detail, onEvent)
-                is DetailState.Alarm -> AlarmDetails(detail, onEvent)
-                is DetailState.Number -> NumberDetails(detail, onEvent)
-                is DetailState.Select -> SelectDetails(detail, onEvent)
-                is DetailState.Text -> TextDetails(detail, onEvent)
-            }
+    TvDialog(contentDescription = "Control details") {
+        when (detail) {
+            is DetailState.Level -> LevelDetails(detail, onEvent)
+            is DetailState.Climate -> ClimateDetails(detail, onEvent)
+            is DetailState.Cover -> CoverDetails(detail, onEvent)
+            is DetailState.Alarm -> AlarmDetails(detail, onEvent)
+            is DetailState.Number -> NumberDetails(detail, onEvent)
+            is DetailState.Select -> SelectDetails(detail, onEvent)
+            is DetailState.Text -> TextDetails(detail, onEvent)
         }
     }
 }
@@ -1475,43 +1078,8 @@ private fun SettingRow(
     onClick: () -> Unit,
     requestInitialFocus: Boolean = false,
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val focusRequester = remember { FocusRequester() }
-    val focusScale by animateFloatAsState(
-        targetValue = if (focused) 1.015f else 1f,
-        animationSpec = tween(durationMillis = 120),
-        label = "setting row focus scale",
-    )
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .focusRequester(focusRequester)
-            .onFocusChanged { focused = it.isFocused }
-            .semantics { contentDescription = title }
-            .graphicsLayer {
-                scaleX = focusScale
-                scaleY = focusScale
-                shadowElevation = if (focused) 12.dp.toPx() else 0f
-            }
-            .heightIn(min = 82.dp)
-            .background(if (focused) HaSurfaceFocused else HaSurface, RoundedCornerShape(18.dp))
-            .border(if (focused) 2.dp else 1.dp, if (focused) HaBlue else HaBorder, RoundedCornerShape(18.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 17.dp),
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                HaText(title, 18.sp)
-                Spacer(Modifier.height(4.dp))
-                HaText(subtitle, 14.sp, HaMuted)
-            }
-            HaText("›", 30.sp, if (focused) HaBlue else HaMuted)
-        }
-    }
+    TvListRow(title, subtitle, onClick, requestInitialFocus)
     Spacer(Modifier.height(12.dp))
-    LaunchedEffect(requestInitialFocus) {
-        if (requestInitialFocus) focusRequester.requestFocus()
-    }
 }
 
 @Composable
@@ -1541,6 +1109,7 @@ private fun HaTextField(
             visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 48.dp)
                 .focusRequester(focusRequester)
                 .onFocusChanged {
                     focused = it.isFocused
@@ -1576,7 +1145,7 @@ private fun HaTextField(
 }
 
 @Composable
-private fun HaButton(
+internal fun HaButton(
     label: String,
     onClick: () -> Unit,
     primary: Boolean = false,
@@ -1586,70 +1155,18 @@ private fun HaButton(
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val localFocusRequester = remember { FocusRequester() }
-    val activeFocusRequester = focusRequester ?: localFocusRequester
-    val focusScale by animateFloatAsState(
-        targetValue = if (focused) 1.03f else 1f,
-        animationSpec = tween(durationMillis = 120),
-        label = "button focus scale",
-    )
-    val background = when {
-        destructive -> HaRed.copy(alpha = .22f)
-        primary && enabled -> HaBlue
-        primary -> HaSurface
-        focused -> HaSurfaceFocused
-        else -> HaSurface
-    }
-    val foreground = when {
-        !enabled -> HaMuted
-        primary -> Color(0xFF082132)
-        else -> HaText
-    }
-    Box(
-        Modifier
-            .then(if (upFocusRequester == null) Modifier else Modifier.focusProperties { up = upFocusRequester })
-            .focusRequester(activeFocusRequester)
-            .onPreviewKeyEvent { event ->
-                if (
-                    upFocusRequester != null &&
-                    event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP &&
-                    event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN
-                ) {
-                    upFocusRequester.requestFocus()
-                    true
-                } else {
-                    false
-                }
-            }
-            .graphicsLayer {
-                scaleX = focusScale
-                scaleY = focusScale
-                shadowElevation = if (focused) 10.dp.toPx() else 0f
-            }
-            .heightIn(min = 48.dp)
-            .semantics { contentDescription = label; role = Role.Button }
-            .background(background, RoundedCornerShape(8.dp))
-            .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 2.dp else 1.dp, if (focused || primary) HaBlue else HaBorder, RoundedCornerShape(8.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
-        contentAlignment = Alignment.Center,
-    ) { HaText(label, 14.sp, foreground) }
-    LaunchedEffect(requestInitialFocus, enabled) {
-        if (requestInitialFocus && enabled) activeFocusRequester.requestFocus()
-    }
+    TvButton(label, onClick, primary, destructive, enabled, requestInitialFocus, focusRequester, upFocusRequester)
 }
 
 @Composable
 private fun ErrorMessage(message: String, dismiss: () -> Unit) {
-    Box(Modifier.fillMaxWidth().padding(12.dp).background(HaRed.copy(alpha = .22f), RoundedCornerShape(10.dp)).clickable(onClick = dismiss).padding(14.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().padding(12.dp).heightIn(min = 48.dp).background(HaRed.copy(alpha = .22f), RoundedCornerShape(10.dp)).clickable(onClick = dismiss).padding(14.dp), contentAlignment = Alignment.Center) {
         HaText(message, 15.sp, HaText)
     }
 }
 
 @Composable
-private fun HaText(
+internal fun HaText(
     value: String,
     size: androidx.compose.ui.unit.TextUnit,
     color: Color = HaText,
@@ -1658,7 +1175,7 @@ private fun HaText(
 }
 
 @Composable
-private fun HaText(
+internal fun HaText(
     value: String,
     size: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier,
@@ -1667,7 +1184,7 @@ private fun HaText(
     Text(value, modifier = modifier, color = color, fontSize = size)
 }
 
-private fun tileIcon(kind: ControlKind) = when (kind) {
+internal fun tileIcon(kind: ControlKind) = when (kind) {
     ControlKind.LIGHT -> Icons.Outlined.Lightbulb
     ControlKind.FAN -> Icons.Outlined.Toys
     ControlKind.CLIMATE -> Icons.Outlined.Thermostat

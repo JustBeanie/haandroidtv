@@ -14,8 +14,10 @@ Keystore key; it never exposes encrypted values in logs. Before a connection is
 persisted, the app performs a bounded authenticated WebSocket handshake; rejected
 tokens stay only in memory and the prior foreground session resumes.
 
-The UI is Compose for TV with immutable `DashboardUiState`. `DashboardViewModel`
-maps Home Assistant state into controls and owns pending/error states. Its
+The UI is Compose for TV with immutable `DashboardUiState`. `MainActivity` is a
+thin adapter that forwards launch intents to `DashboardViewModel`; it does not
+retain or interpret application data. `DashboardViewModel` maps Home Assistant
+state into controls, resolves launch requests, and owns pending/error states. Its
 foreground-session coordinator starts exactly one socket after saved settings are
 available and stops it when the activity leaves the foreground. Platform code is
 isolated in `HomeChannelPublisher`, which writes opt-in preview-channel entries

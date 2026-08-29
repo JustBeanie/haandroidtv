@@ -3,7 +3,9 @@ name: Verify Android TV app
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'codex/**'
 
 permissions:
   contents: read
@@ -13,6 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Self-test Shield validation helper
+        shell: pwsh
+        run: ./tools/validate-shield.ps1 -SelfTest
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
       - uses: actions/setup-java@v6
@@ -31,9 +36,10 @@ jobs:
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
 
-  tv-emulator:
+  tv-ui:
     needs: unit-and-lint
     runs-on: ubuntu-latest
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
       - name: Make Gradle wrapper executable
@@ -54,11 +60,51 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 900
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-          script: adb wait-for-device shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 1; done;' && sleep 30 && ./gradlew :app:connectedDebugAndroidTest
+          script: |
+            adb wait-for-device shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 1; done;'
+            sleep 30
+            ./gradlew :app:connectedDebugAndroidTest
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: tv-instrumentation-reports
+          name: tv-ui-reports
           path: |
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
+
+  tv-benchmark-smoke:
+    needs: unit-and-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Run Android TV benchmark smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: android-tv
+          arch: x86
+          profile: tv_1080p
+          force-avd-creation: true
+          disable-animations: true
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          script: |
+            adb wait-for-device shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 1; done;'
+            sleep 30
+            ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.dryRunMode.enable=true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tv-benchmark-reports
+          path: |
+            benchmark/build/outputs/connected_android_test_additional_output
+            benchmark/build/reports/androidTests
+            benchmark/build/outputs/androidTest-results
