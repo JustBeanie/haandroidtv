@@ -27,7 +27,9 @@ The profiled emulator cold-start trend is below the 1.5-second target. Consecuti
 - [x] CI executes single-loop cold/warm/Home-return and 30-tile DPAD benchmark verification and retains JSON/traces; full iterations run locally and on the Shield.
 - [x] A generated Baseline Profile and startup profile are packaged in release builds.
 - [ ] Physical Shield Pro cold-start median is at most 1.5 seconds.
-- [ ] Physical Shield Pro command pending feedback appears within 100 ms.
+- [ ] Physical Shield Pro command pending feedback appears within 100 ms. This
+  measurement is explicitly user-waived for the current release, remains
+  unmeasured, and must be recorded as `WAIVED`, not passed.
 - [ ] Physical Shield Pro DPAD frame-overrun P95 is at most 0 ms.
 
-Run `./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest` for emulator trend data. Run `tools/validate-shield.ps1 -SelfTest` to verify the evidence parser, then follow `docs/shield-pro-validation.md` for the fail-closed physical release gate and save its output with the video/frame annotations.
+Run `./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest` for emulator trend data. Run `tools/validate-shield.ps1 -SelfTest` to verify the evidence parser, then follow `docs/shield-pro-validation.md` for the fail-closed physical release gate and save its output with the video/frame annotations. When the pending-feedback test has explicit user approval to be waived, pass `-SkipPendingFeedback`; this changes only that gate to `WAIVED` and leaves cold-start, frame-overrun, and manual evidence requirements in force.

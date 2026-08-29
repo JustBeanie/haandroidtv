@@ -13,6 +13,7 @@ param(
     [ValidateRange(1, 10)]
     [int]$TraversalIterations = 5,
     [double[]]$PendingLatencyMs = @(),
+    [switch]$SkipPendingFeedback,
     [switch]$SelfTest
 )
 
@@ -49,6 +50,38 @@ function Get-Median {
     $middle = [Math]::Floor($sorted.Count / 2)
     if ($sorted.Count % 2 -eq 1) { return $sorted[$middle] }
     return ($sorted[$middle - 1] + $sorted[$middle]) / 2.0
+}
+
+function Get-PendingFeedbackGate {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][double[]]$PendingValues,
+        [AllowNull()][object]$PendingResults,
+        [bool]$Waived = $false
+    )
+    if ($Waived) {
+        return [pscustomobject]@{
+            Status = "WAIVED"
+            Failure = $null
+            Message = "Pending-feedback latency gate: WAIVED by explicit user approval via -SkipPendingFeedback; no passing latency result is claimed."
+        }
+    }
+    if ($PendingValues.Count -ne 10) {
+        $failure = "exactly ten pending-feedback latency samples are required; received $($PendingValues.Count)"
+        return [pscustomobject]@{ Status = "FAIL"; Failure = $failure; Message = "Pending-feedback latency gate: FAIL - $failure." }
+    }
+    if ($null -eq $PendingResults) {
+        $failure = "pending-feedback statistics could not be calculated"
+        return [pscustomobject]@{ Status = "FAIL"; Failure = $failure; Message = "Pending-feedback latency gate: FAIL - $failure." }
+    }
+    if ($PendingResults.Maximum -gt 100) {
+        $failure = "pending-feedback maximum {0:N1} ms exceeded 100 ms" -f $PendingResults.Maximum
+        return [pscustomobject]@{ Status = "FAIL"; Failure = $failure; Message = "Pending-feedback latency gate: FAIL - $failure." }
+    }
+    return [pscustomobject]@{
+        Status = "PASS"
+        Failure = $null
+        Message = "Pending-feedback latency gate: PASS - all ten samples were at most 100 ms."
+    }
 }
 
 function Convert-GfxInfoToFrameOverruns {
@@ -201,7 +234,21 @@ function Invoke-SelfTest {
         $missingPendingFailures[0] -ne "exactly ten pending-feedback latency samples are required; received 0") {
         throw "Missing pending-feedback release-gate self-test failed."
     }
-    Write-Host "Shield validation self-test passed."
+
+    $waivedGate = Get-PendingFeedbackGate -PendingValues @() -PendingResults $null -Waived $true
+    $waivedFailures = @(Get-ReleaseValidationFailures `
+        -ColdResults ([pscustomobject]@{ Count = 10; Median = 1500.0 }) `
+        -FrameResults ([pscustomobject]@{ Count = 30; P95 = 0.0 }) `
+        -PendingValues @() `
+        -PendingResults $null `
+        -SkipPendingFeedback $true)
+    if ($waivedGate.Status -ne "WAIVED" -or
+        $waivedGate.Message -notmatch "WAIVED" -or
+        $waivedGate.Message -match "\bPASS\b" -or
+        $waivedFailures.Count -ne 0) {
+        throw "Explicit pending-feedback waiver self-test failed."
+    }
+    Write-Host "Shield validation self-test passed (10 checks)."
 }
 
 function Measure-Launches {
@@ -288,7 +335,8 @@ function Get-ReleaseValidationFailures {
         [AllowNull()][object]$ColdResults,
         [Parameter(Mandatory = $true)][object]$FrameResults,
         [Parameter(Mandatory = $true)][AllowEmptyCollection()][double[]]$PendingValues,
-        [AllowNull()][object]$PendingResults
+        [AllowNull()][object]$PendingResults,
+        [bool]$SkipPendingFeedback = $false
     )
     $failures = [System.Collections.Generic.List[string]]::new()
     if ($null -eq $ColdResults) {
@@ -304,12 +352,12 @@ function Get-ReleaseValidationFailures {
     if ($FrameResults.Count -lt 30) {
         $failures.Add("at least 30 valid frame records are required; captured $($FrameResults.Count)")
     }
-    if ($PendingValues.Count -ne 10) {
-        $failures.Add("exactly ten pending-feedback latency samples are required; received $($PendingValues.Count)")
-    } elseif ($null -eq $PendingResults) {
-        $failures.Add("pending-feedback statistics could not be calculated")
-    } elseif ($PendingResults.Maximum -gt 100) {
-        $failures.Add(("pending-feedback maximum {0:N1} ms exceeded 100 ms" -f $PendingResults.Maximum))
+    $pendingGate = Get-PendingFeedbackGate `
+        -PendingValues $PendingValues `
+        -PendingResults $PendingResults `
+        -Waived $SkipPendingFeedback
+    if ($pendingGate.Status -eq "FAIL") {
+        $failures.Add($pendingGate.Failure)
     }
     return $failures.ToArray()
 }
@@ -317,6 +365,13 @@ function Get-ReleaseValidationFailures {
 if ($SelfTest) {
     Invoke-SelfTest
     return
+}
+
+if ($SkipPendingFeedback -and $BuildVariant -ne "Release") {
+    throw "-SkipPendingFeedback is an explicit release-gate waiver and requires -BuildVariant Release."
+}
+if ($SkipPendingFeedback -and $PendingLatencyMs.Count -gt 0) {
+    throw "Use either -SkipPendingFeedback or -PendingLatencyMs, not both."
 }
 
 $devices = Invoke-Adb -Arguments @("devices")
@@ -353,11 +408,21 @@ if ($BuildVariant -eq "Release") {
 
 if ($BuildVariant -eq "Release") {
     Write-Host "Release target: frame-overrun P95 <= 0 ms during 30-tile traversal."
+    $pendingGate = Get-PendingFeedbackGate `
+        -PendingValues $PendingLatencyMs `
+        -PendingResults $pendingResults `
+        -Waived ([bool]$SkipPendingFeedback)
+    if ($pendingGate.Status -eq "WAIVED") {
+        Write-Host $pendingGate.Message -ForegroundColor Yellow
+    } else {
+        Write-Host $pendingGate.Message
+    }
     $releaseFailures = @(Get-ReleaseValidationFailures `
         -ColdResults $coldResults `
         -FrameResults $frameResults `
         -PendingValues $PendingLatencyMs `
-        -PendingResults $pendingResults)
+        -PendingResults $pendingResults `
+        -SkipPendingFeedback ([bool]$SkipPendingFeedback))
 } else {
     $releaseFailures = @()
 }

@@ -33,6 +33,14 @@ median is at most 1.5 seconds, at least 30 valid frame records are captured,
 frame-overrun P95 is at most 0 ms, and all ten pending-feedback measurements
 are at most 100 ms. It records P99 for regression comparison.
 
+The pending-feedback measurement may be waived only after explicit user
+approval. Record that exception by replacing `-PendingLatencyMs ...` with
+`-SkipPendingFeedback` on the release command. The helper reports this gate as
+`WAIVED` and explicitly states that no latency pass is claimed. It still
+enforces the cold-launch and frame-overrun gates and all manual checks remain
+required. Without the flag, missing pending-feedback samples continue to fail
+closed; never infer a waiver from absent evidence.
+
 The helper deliberately refuses non-NVIDIA devices so emulator trend results
 cannot accidentally be recorded as the physical Shield release gate.
 
@@ -101,6 +109,9 @@ existing authenticated ADB connection.
   showing pending feedback, then calculate `frames / capture_fps * 1000`.
   Supply the ten millisecond values with `-PendingLatencyMs`; every sample must
   be at most 100 ms. Keep the video or frame annotations with the run output.
+  If the user explicitly waives this measurement, run the release helper with
+  `-SkipPendingFeedback` instead and retain its `WAIVED` output with the release
+  evidence. A waiver is not a passing latency measurement.
 - The helper repeats the same D-pad journey as Macrobenchmark five times,
   parses `dumpsys gfxinfo ... framestats`, and reports frame-overrun P50, P90,
   P95, and P99. The release gate requires P95 at most 0 ms. On older Shield
