@@ -83,6 +83,22 @@ class HomeAssistantWebSocketTest {
     }
 
     @Test
+    fun `oversized server messages fail closed before JSON parsing`() = runTest {
+        val fixture = Fixture()
+        val connection = async { fixture.gateway.connect("https://ha.example", "token") }
+
+        runCurrent()
+        fixture.authenticate()
+        assertTrue(connection.await().isSuccess)
+
+        fixture.listener.onMessage(fixture.socket, "x".repeat(1_048_577))
+
+        assertIs<ConnectionStatus.Failed>(fixture.gateway.status.value)
+        assertTrue(fixture.gateway.entities.value.isEmpty())
+        assertTrue(fixture.socket.cancelled)
+    }
+
+    @Test
     fun `rejected event subscription resets the session so reconnect can restore updates`() = runTest {
         val fixture = Fixture()
         val connection = async { fixture.gateway.connect("https://ha.example", "token") }

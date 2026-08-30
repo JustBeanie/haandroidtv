@@ -74,7 +74,7 @@ class HomeChannelPublisher @Inject constructor(
     }
 
     private fun tileArtUri(entity: HaEntity? = null): Uri =
-        "android.resource://${context.packageName}/${entity?.let(::tileArtwork) ?: R.drawable.shortcut_tile}".toUri()
+        "android.resource://${context.packageName}/${entity?.let(::tileArtwork) ?: R.drawable.shortcut_tile_v2}".toUri()
 
     private fun tileArtwork(entity: HaEntity): Int = when (entity.capabilities().kind) {
         ControlKind.LIGHT, ControlKind.FAN -> R.drawable.shortcut_tile_light
@@ -82,7 +82,7 @@ class HomeChannelPublisher @Inject constructor(
         ControlKind.COVER -> R.drawable.shortcut_tile_cover
         ControlKind.ALARM -> R.drawable.shortcut_tile_security
         ControlKind.SCENE, ControlKind.SCRIPT, ControlKind.BUTTON -> R.drawable.shortcut_tile_action
-        else -> R.drawable.shortcut_tile
+        else -> R.drawable.shortcut_tile_v2
     }
 
     private fun deepLinkUri(entityId: String, behavior: ShortcutBehavior): Uri =

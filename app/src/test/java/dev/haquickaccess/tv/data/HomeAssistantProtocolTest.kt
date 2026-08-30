@@ -61,4 +61,18 @@ class HomeAssistantProtocolTest {
             ),
         )
     }
+
+    @Test
+    fun `state mapping rejects invalid identifiers and oversized state values`() {
+        assertNull(
+            HomeAssistantProtocol.entityFromJson(
+                JsonObject(mapOf("entity_id" to JsonPrimitive("../../token"), "state" to JsonPrimitive("on"))),
+            ),
+        )
+        assertNull(
+            HomeAssistantProtocol.entityFromJson(
+                JsonObject(mapOf("entity_id" to JsonPrimitive("light.den"), "state" to JsonPrimitive("x".repeat(257)))),
+            ),
+        )
+    }
 }

@@ -8,8 +8,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -34,8 +37,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Blinds
 import androidx.compose.material.icons.outlined.Lightbulb
@@ -56,13 +57,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -82,6 +86,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import dev.haquickaccess.tv.R
 import dev.haquickaccess.tv.data.ConnectionStatus
 import dev.haquickaccess.tv.domain.model.ControlAction
 import dev.haquickaccess.tv.domain.model.ControlBrowser
@@ -220,45 +225,58 @@ private fun DashboardHero(
     focusRequester: FocusRequester,
     downFocusRequester: FocusRequester,
 ) {
-    Row(
+    Box(
         Modifier
             .fillMaxWidth()
-            .background(HaSurface.copy(alpha = .72f), RoundedCornerShape(24.dp))
-            .border(1.dp, HaBorder, RoundedCornerShape(24.dp))
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .heightIn(min = 112.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .border(1.dp, HaBorder, RoundedCornerShape(24.dp)),
     ) {
-        Box(
-            Modifier.size(48.dp).background(HaBlue.copy(alpha = .14f), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Outlined.Lightbulb, null, Modifier.size(26.dp), HaBlue)
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            HaText("HA Quick Access", 26.sp)
-            Spacer(Modifier.height(2.dp))
-            HaText("$controlCount controls ready for your remote", 14.sp, HaMuted)
-        }
-        val (label, color) = when {
-            showingCachedSnapshot -> "Last known · reconnecting" to HaAmber
-            else -> when (status) {
-            is ConnectionStatus.Connected -> "Home connected" to HaBlue
-            is ConnectionStatus.Connecting -> "Connecting" to HaAmber
-            is ConnectionStatus.Failed -> "Connection problem" to HaRed
-            ConnectionStatus.Disconnected -> "Offline" to HaMuted
-            }
-        }
+        Image(
+            painter = painterResource(R.drawable.ambient_home_banner_v2),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
         Row(
-            Modifier.background(color.copy(alpha = .12f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 8.dp),
+            Modifier
+                .fillMaxWidth()
+                .background(HaSurface.copy(alpha = .78f))
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(8.dp).background(color, CircleShape))
-            Spacer(Modifier.width(7.dp))
-            HaText(label, 13.sp, color)
+            Box(
+                Modifier.size(48.dp).background(HaBlue.copy(alpha = .14f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Lightbulb, null, Modifier.size(26.dp), HaBlue)
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                HaText("HA Quick Access", 26.sp)
+                Spacer(Modifier.height(2.dp))
+                HaText("$controlCount controls ready for your remote", 14.sp, HaMuted)
+            }
+            val (label, color) = when {
+                showingCachedSnapshot -> "Last known · reconnecting" to HaAmber
+                else -> when (status) {
+                    is ConnectionStatus.Connected -> "Home connected" to HaBlue
+                    is ConnectionStatus.Connecting -> "Connecting" to HaAmber
+                    is ConnectionStatus.Failed -> "Connection problem" to HaRed
+                    ConnectionStatus.Disconnected -> "Offline" to HaMuted
+                }
+            }
+            Row(
+                Modifier.background(color.copy(alpha = .12f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(8.dp).background(color, CircleShape))
+                Spacer(Modifier.width(7.dp))
+                HaText(label, 13.sp, color)
+            }
+            Spacer(Modifier.width(16.dp))
+            HeaderSettingsButton(onSettings, focusRequester, downFocusRequester)
         }
-        Spacer(Modifier.width(16.dp))
-        HeaderSettingsButton(onSettings, focusRequester, downFocusRequester)
     }
 }
 

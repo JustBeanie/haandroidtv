@@ -1,6 +1,7 @@
 package dev.haquickaccess.tv.data
 
 import dev.haquickaccess.tv.domain.model.HaEntity
+import dev.haquickaccess.tv.domain.model.homeAssistantEntityIdPattern
 import java.net.URI
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -31,6 +32,9 @@ object HomeAssistantProtocol {
         val objectValue = value as? JsonObject ?: return null
         val id = (objectValue["entity_id"] as? JsonPrimitive)?.contentOrNull ?: return null
         val state = (objectValue["state"] as? JsonPrimitive)?.contentOrNull ?: return null
+        if (!homeAssistantEntityIdPattern.matches(id) || state.length > MAX_STATE_LENGTH) return null
         return HaEntity(id, state, objectValue["attributes"] as? JsonObject ?: JsonObject(emptyMap()))
     }
+
+    private const val MAX_STATE_LENGTH = 256
 }

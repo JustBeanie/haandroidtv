@@ -4,6 +4,7 @@ import dev.haquickaccess.tv.domain.model.ControlAction
 import dev.haquickaccess.tv.domain.model.HaEntity
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.int
@@ -135,5 +136,24 @@ class HomeAssistantCommandFactoryTest {
         assertEquals("alarm_arm_away", arm.service)
         assertEquals(null, arm.data["code"])
         assertEquals("alarm_disarm", HomeAssistantCommandFactory.create(ControlAction.DisarmAlarm(entity, "9876")).service)
+    }
+
+    @Test
+    fun `command boundary rejects malformed identifiers and unsafe values`() {
+        assertFailsWith<IllegalArgumentException> {
+            HomeAssistantCommandFactory.create(ControlAction.Toggle(HaEntity("../../token", "on")))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            HomeAssistantCommandFactory.create(ControlAction.SetLevel(HaEntity("light.den", "on"), 101))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            HomeAssistantCommandFactory.create(ControlAction.ArmAlarm(HaEntity("alarm_control_panel.home", "disarmed"), "disarm"))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            HomeAssistantCommandFactory.create(ControlAction.SetClimateTemperature(HaEntity("climate.hall", "heat"), Double.NaN))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            HomeAssistantCommandFactory.create(ControlAction.Toggle(HaEntity("script.goodnight", "on")))
+        }
     }
 }

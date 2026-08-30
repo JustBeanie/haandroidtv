@@ -23,6 +23,12 @@ long-lived access token in Home Assistant under **Profile → Security**. The
 token is encrypted with a non-exportable Android Keystore AES key, and Android
 backup is disabled. Do not use HTTP or disable certificate validation.
 
+Run the repository security baseline before a release with
+`./tools/security-audit.ps1`. It performs a redacted secret/hygiene scan and
+the Android/unit verification locally; CI additionally runs dependency-review
+and OSV-Scanner. Never include token, alarm-code, or signing-key values in
+audit output.
+
 ## Run locally
 
 1. Install JDK 17 and the Android SDK platform for API 36.

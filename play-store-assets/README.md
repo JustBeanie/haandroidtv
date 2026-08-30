@@ -1,6 +1,6 @@
 # Play Store assets
 
-These files are ready for the Google Play Console listing for version 0.2.0:
+These files are ready for the Google Play Console listing for version 0.3.0:
 
 | File | Dimensions | Source |
 | --- | ---: | --- |

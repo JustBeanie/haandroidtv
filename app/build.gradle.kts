@@ -29,8 +29,8 @@ android {
         applicationId = "dev.haquickaccess.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -86,6 +86,36 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+// Keep the resolved runtime and test graph reproducible and make it
+// inspectable by dependency vulnerability scanners.
+dependencyLocking {
+    lockAllConfigurations()
+}
+
+// Keep transitive build/test tooling on versions with current OSV fixes. These
+// modules are pulled by Android lint and the Unified Test Platform rather than
+// shipped in the application APK, but they still execute in the release CI.
+configurations.configureEach {
+    resolutionStrategy.force(
+        "io.netty:netty-buffer:4.1.137.Final",
+        "io.netty:netty-codec:4.1.137.Final",
+        "io.netty:netty-codec-http:4.1.137.Final",
+        "io.netty:netty-codec-http2:4.1.137.Final",
+        "io.netty:netty-codec-socks:4.1.137.Final",
+        "io.netty:netty-common:4.1.137.Final",
+        "io.netty:netty-handler:4.1.137.Final",
+        "io.netty:netty-handler-proxy:4.1.137.Final",
+        "io.netty:netty-resolver:4.1.137.Final",
+        "io.netty:netty-transport:4.1.137.Final",
+        "io.netty:netty-transport-native-unix-common:4.1.137.Final",
+        "org.apache.commons:commons-lang3:3.18.0",
+        "org.apache.httpcomponents:httpclient:4.5.13",
+        "org.bouncycastle:bcpkix-jdk18on:1.84",
+        "org.bouncycastle:bcprov-jdk18on:1.84",
+        "org.bouncycastle:bcutil-jdk18on:1.84",
+    )
 }
 
 // The Baseline Profile plugin synthesizes these variants from release. Keep

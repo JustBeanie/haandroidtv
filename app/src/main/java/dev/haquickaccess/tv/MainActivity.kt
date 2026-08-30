@@ -15,6 +15,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import dev.haquickaccess.tv.ui.DashboardViewModel
 import dev.haquickaccess.tv.ui.HaQuickAccessApp
+import dev.haquickaccess.tv.data.LaunchIntentValidator
 import kotlinx.coroutines.flow.collect
 
 @AndroidEntryPoint
@@ -50,11 +51,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun dispatchLaunchIntent(intent: Intent?) {
-        dashboardViewModel.handleLaunchRequest(
-            entityId = intent?.data?.lastPathSegment,
-            behavior = intent?.data?.getQueryParameter("behavior"),
-            benchmarkFixtureRequested = intent?.getBooleanExtra(EXTRA_BENCHMARK_FIXTURE, false) == true,
-        )
+        val request = LaunchIntentValidator.parse(intent?.data?.toString())
+        val benchmarkFixtureRequested = intent?.getBooleanExtra(EXTRA_BENCHMARK_FIXTURE, false) == true
+        if (request != null) {
+            dashboardViewModel.handleLaunchRequest(request.entityId, request.behavior)
+        } else if (benchmarkFixtureRequested) {
+            dashboardViewModel.handleLaunchRequest(null, null, benchmarkFixtureRequested = true)
+        }
     }
 
     companion object {

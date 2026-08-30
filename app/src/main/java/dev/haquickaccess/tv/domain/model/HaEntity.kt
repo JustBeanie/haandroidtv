@@ -7,6 +7,8 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 
+internal val homeAssistantEntityIdPattern = Regex("[a-z0-9_]+\\.[a-z0-9_]+")
+
 data class HaEntity(
     val entityId: String,
     val state: String,

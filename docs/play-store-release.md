@@ -1,6 +1,6 @@
 # Google Play release guide
 
-This document is the release hand-off for version 0.2.0 (version code 2).
+This document is the release hand-off for version 0.3.0 (version code 3).
 It assumes an Android TV-only distribution.
 
 ## Before creating the release

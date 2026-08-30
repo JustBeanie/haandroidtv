@@ -58,10 +58,12 @@ class SettingsRepository @Inject constructor(
     }
 
     override suspend fun saveConnection(baseUrl: String, token: String) {
-        require(baseUrl.startsWith("https://")) { "Only HTTPS Home Assistant URLs are supported" }
+        val normalizedUrl = UrlValidator.normalize(baseUrl).getOrThrow()
+        require(token.isNotBlank()) { "Home Assistant token cannot be blank" }
+        require(token.length <= MAX_TOKEN_LENGTH) { "Home Assistant token is too long" }
         val encryptedToken = cipher.encrypt(token)
         context.settingsDataStore.edit {
-            it[Keys.baseUrl] = baseUrl.trimEnd('/')
+            it[Keys.baseUrl] = normalizedUrl
             it[Keys.tokenEnvelope] = encryptedToken
         }
     }
@@ -108,5 +110,9 @@ class SettingsRepository @Inject constructor(
         val homeChannelEnabled = booleanPreferencesKey("home_channel_enabled")
         val channelId = longPreferencesKey("home_channel_id")
         val lastFocusedEntityId = stringPreferencesKey("last_focused_entity")
+    }
+
+    private companion object {
+        const val MAX_TOKEN_LENGTH = 4096
     }
 }

@@ -188,6 +188,12 @@ class HomeAssistantWebSocket private constructor(
     private inner class Listener : WebSocketListener() {
         override fun onMessage(webSocket: WebSocket, text: String) {
             if (socket !== webSocket) return
+            if (text.length > MAX_MESSAGE_LENGTH) {
+                val failure = IllegalArgumentException("Home Assistant message is too large")
+                failActiveSocket(webSocket, failure, "Home Assistant sent an oversized message")
+                webSocket.cancel()
+                return
+            }
             val message = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
             when ((message["type"] as? JsonPrimitive)?.contentOrNull) {
                 "auth_required" -> {
@@ -298,5 +304,6 @@ class HomeAssistantWebSocket private constructor(
 
     private companion object {
         const val CONNECTION_TIMEOUT_MS = 10_000L
+        const val MAX_MESSAGE_LENGTH = 1_048_576
     }
 }

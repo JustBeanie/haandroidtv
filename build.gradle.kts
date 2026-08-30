@@ -8,3 +8,8 @@ plugins {
     alias(libs.plugins.android.test) apply false
     alias(libs.plugins.baselineprofile) apply false
 }
+
+// Lock plugin/buildscript resolution as well as the app's runtime graph.
+dependencyLocking {
+    lockAllConfigurations()
+}
