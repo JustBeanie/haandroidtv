@@ -96,13 +96,16 @@ if (-not $SkipBuild) {
     if ($null -eq $mergedManifestFile) { throw 'Release merged manifest was not generated.' }
     [xml]$mergedManifest = Get-Content -Raw $mergedManifestFile.FullName
     $exportedComponents = @($mergedManifest.SelectNodes("//*[local-name()='application']/*[@*[local-name()='exported']='true']"))
-    $reviewedExportedNames = @('dev.haquickaccess.tv.MainActivity', 'androidx.profileinstaller.ProfileInstallReceiver')
+    $reviewedExportedNames = @('dev.haquickaccess.tv.MainActivity', 'dev.haquickaccess.tv.data.AdbCommandReceiver', 'androidx.profileinstaller.ProfileInstallReceiver')
     foreach ($component in $exportedComponents) {
         $name = $component.GetAttribute('name', 'http://schemas.android.com/apk/res/android')
         $permission = $component.GetAttribute('permission', 'http://schemas.android.com/apk/res/android')
         if ($name -notin $reviewedExportedNames) { throw "Unreviewed exported release component: $name" }
         if ($name -eq 'androidx.profileinstaller.ProfileInstallReceiver' -and $permission -ne 'android.permission.DUMP') {
             throw 'ProfileInstallReceiver is not protected by android.permission.DUMP.'
+        }
+        if ($name -eq 'dev.haquickaccess.tv.data.AdbCommandReceiver' -and $permission -ne 'android.permission.DUMP') {
+            throw 'AdbCommandReceiver is not protected by android.permission.DUMP.'
         }
     }
 }

@@ -8,7 +8,9 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.haquickaccess.tv.domain.model.ShortcutConfiguration
+import dev.haquickaccess.tv.domain.model.ShortcutBehavior
 import dev.haquickaccess.tv.domain.model.TileConfiguration
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -65,6 +67,36 @@ class SettingsRepository @Inject constructor(
         context.settingsDataStore.edit {
             it[Keys.baseUrl] = normalizedUrl
             it[Keys.tokenEnvelope] = encryptedToken
+        }
+    }
+
+    suspend fun applyConfiguration(configuration: AdbConfiguration) {
+        AdbConfigurationValidator.validate(configuration)
+        val normalizedUrl = configuration.baseUrl?.let { UrlValidator.normalize(it).getOrThrow() }
+        val encryptedToken = configuration.token?.let { token ->
+            require(token.isNotBlank()) { "Home Assistant token cannot be blank" }
+            require(token.length <= MAX_TOKEN_LENGTH) { "Home Assistant token is too long" }
+            cipher.encrypt(token)
+        }
+        val tiles = configuration.tiles?.mapIndexed { position, entityId ->
+            TileConfiguration(entityId, position)
+        }
+        val shortcuts = configuration.shortcuts?.map { shortcut ->
+            ShortcutConfiguration(
+                entityId = shortcut.entityId,
+                behavior = ShortcutBehavior.valueOf(shortcut.behavior.uppercase(Locale.ROOT)),
+            )
+        }
+
+        context.settingsDataStore.edit {
+            if (normalizedUrl != null) it[Keys.baseUrl] = normalizedUrl
+            if (encryptedToken != null) it[Keys.tokenEnvelope] = encryptedToken
+            if (tiles != null) it[Keys.tiles] = json.encodeToString(tiles)
+            if (shortcuts != null) it[Keys.shortcuts] = json.encodeToString(shortcuts)
+            configuration.homeChannelEnabled?.let { enabled ->
+                it[Keys.homeChannelEnabled] = enabled
+                if (!enabled) it.remove(Keys.channelId)
+            }
         }
     }
 

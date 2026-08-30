@@ -40,6 +40,13 @@ To make the Shield remote's customizable Settings button open the app, choose
 **Settings → Remotes & Accessories → Customize Settings button** on the Shield,
 then select HA Quick Access. The app restores the last focused tile.
 
+## ADB command API
+
+The release build exposes a `DUMP`-protected broadcast receiver for device-local
+automation. It supports configuration import, redacted configuration queries,
+configuration clearing, and entity control dispatch. See the [ADB command API
+guide](docs/adb-command-api.md) for the command contract and examples.
+
 ## Signed release builds
 
 `assembleRelease` deliberately produces `app-release-unsigned.apk` unless a

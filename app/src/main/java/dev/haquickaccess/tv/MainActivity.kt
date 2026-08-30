@@ -53,14 +53,17 @@ class MainActivity : ComponentActivity() {
     private fun dispatchLaunchIntent(intent: Intent?) {
         val request = LaunchIntentValidator.parse(intent?.data?.toString())
         val benchmarkFixtureRequested = intent?.getBooleanExtra(EXTRA_BENCHMARK_FIXTURE, false) == true
+        val refreshHomeChannelRequested = intent?.getBooleanExtra(EXTRA_REFRESH_HOME_CHANNEL, false) == true
         if (request != null) {
             dashboardViewModel.handleLaunchRequest(request.entityId, request.behavior)
         } else if (benchmarkFixtureRequested) {
             dashboardViewModel.handleLaunchRequest(null, null, benchmarkFixtureRequested = true)
         }
+        if (refreshHomeChannelRequested) dashboardViewModel.refreshHomeChannelWhenReady()
     }
 
     companion object {
         const val EXTRA_BENCHMARK_FIXTURE = "dev.haquickaccess.tv.extra.BENCHMARK_FIXTURE"
+        const val EXTRA_REFRESH_HOME_CHANNEL = "dev.haquickaccess.tv.extra.REFRESH_HOME_CHANNEL"
     }
 }

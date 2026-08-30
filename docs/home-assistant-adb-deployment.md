@@ -199,4 +199,6 @@ For normal use, map the Shield Settings button to HA Quick Access as described
 in the release checklist. For a Home Assistant automation, either run the
 launch command above or configure the release package `dev.haquickaccess.tv`
 in the Android Debug Bridge integration's application list and select that
-media-player source.
+media-player source. For configuration and control automation, use the
+[ADB command API](adb-command-api.md); it keeps the access token out of ADB
+command-line arguments by importing it from a temporary file.

@@ -34,4 +34,34 @@ class SettingsRepositoryInstrumentedTest {
         assertNull(cleared.baseUrl)
         assertNull(cleared.tokenEnvelope)
     }
+
+    @Test
+    fun adb_configuration_updates_connection_tiles_shortcuts_and_channel_flag() = runBlocking {
+        val repository = SettingsRepository(
+            context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext,
+            cipher = TokenCipher(),
+            json = Json { ignoreUnknownKeys = true; explicitNulls = false },
+        )
+        repository.clearConnection()
+
+        repository.applyConfiguration(
+            AdbConfiguration(
+                baseUrl = "https://ha.example/",
+                token = "adb-token",
+                tiles = listOf("light.kitchen", "switch.tv"),
+                shortcuts = listOf(AdbShortcut("light.kitchen", "toggle")),
+                homeChannelEnabled = true,
+            ),
+        )
+        val saved = repository.settings.first()
+
+        assertEquals("https://ha.example", saved.baseUrl)
+        assertEquals(listOf("light.kitchen", "switch.tv"), saved.tiles.map { it.entityId })
+        assertEquals("light.kitchen", saved.homeShortcuts.single().entityId)
+        assertEquals("toggle", saved.homeShortcuts.single().behavior.name.lowercase())
+        assertEquals(true, saved.homeChannelEnabled)
+        assertEquals("adb-token", repository.decryptToken(saved))
+
+        repository.clearConnection()
+    }
 }

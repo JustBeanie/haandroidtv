@@ -41,5 +41,9 @@
                 <data android:scheme="haquickaccess" android:host="control" />
             </intent-filter>
         </activity>
+        <receiver
+            android:name=".data.AdbCommandReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>

@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -844,6 +845,21 @@ class DashboardViewModel @Inject constructor(
     fun refreshHomeChannel() = viewModelScope.launch {
         if (!latestSettings.homeChannelEnabled) return@launch
         publishHomeChannel(latestSettings)
+    }
+
+    fun refreshHomeChannelWhenReady() = viewModelScope.launch {
+        val readyState = combine(
+            settingsRepository.settings,
+            homeAssistantRepository.initialStatesLoaded,
+            homeAssistantRepository.status,
+        ) { settings, initialStatesLoaded, status ->
+            Triple(settings, initialStatesLoaded, status)
+        }.first { (settings, initialStatesLoaded, status) ->
+            val configured = settings.baseUrl != null && settings.tokenEnvelope != null
+            !settings.homeChannelEnabled || !configured || initialStatesLoaded || status is ConnectionStatus.Failed
+        }
+        val (settings, initialStatesLoaded, _) = readyState
+        if (settings.homeChannelEnabled && initialStatesLoaded) publishHomeChannel(settings)
     }
 
     private suspend fun publishShortcutsIfEnabled(shortcuts: List<ShortcutConfiguration>) {
