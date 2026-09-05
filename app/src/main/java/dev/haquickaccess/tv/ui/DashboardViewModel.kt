@@ -859,7 +859,8 @@ class DashboardViewModel @Inject constructor(
             !settings.homeChannelEnabled || !configured || initialStatesLoaded || status is ConnectionStatus.Failed
         }
         val (settings, initialStatesLoaded, _) = readyState
-        if (settings.homeChannelEnabled && initialStatesLoaded) publishHomeChannel(settings)
+        val configured = settings.baseUrl != null && settings.tokenEnvelope != null
+        if (settings.homeChannelEnabled && configured && initialStatesLoaded) publishHomeChannel(settings)
     }
 
     private suspend fun publishShortcutsIfEnabled(shortcuts: List<ShortcutConfiguration>) {

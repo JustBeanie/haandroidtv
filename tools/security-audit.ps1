@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
 
-$bundledJdk = Get-ChildItem '.tooling\jdk17' -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+$bundledJdk = Get-ChildItem (Join-Path $projectRoot '.tooling/jdk17') -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -ne $bundledJdk -and (-not $env:JAVA_HOME -or $env:JAVA_HOME -match 'jre-8|jdk-8')) {
     $env:JAVA_HOME = $bundledJdk.FullName
     $env:Path = "$($env:JAVA_HOME)\bin;$env:Path"
@@ -66,7 +66,10 @@ if ($secretHits.Count -gt 0) {
     throw 'Secret scan failed.'
 }
 
-$outputRoots = @('app\build', 'benchmark\build') | Where-Object { Test-Path -LiteralPath $_ }
+$outputRoots = @(
+    (Join-Path $projectRoot 'app/build'),
+    (Join-Path $projectRoot 'benchmark/build')
+) | Where-Object { Test-Path -LiteralPath $_ }
 foreach ($outputRoot in $outputRoots) {
     foreach ($pattern in $secretPatterns) {
         $artifactMatch = @(Get-ChildItem -LiteralPath $outputRoot -Recurse -File -ErrorAction SilentlyContinue |
@@ -77,7 +80,7 @@ foreach ($outputRoot in $outputRoots) {
 }
 
 Write-Host 'Security audit: Android manifest policy'
-$manifestText = Get-Content -Raw 'app\src\main\AndroidManifest.xml'
+$manifestText = Get-Content -Raw (Join-Path $projectRoot 'app/src/main/AndroidManifest.xml')
 $requiredManifestControls = @(
     'android:allowBackup="false"',
     'android:usesCleartextTraffic="false"',
@@ -86,7 +89,7 @@ $requiredManifestControls = @(
 foreach ($control in $requiredManifestControls) {
     if ($manifestText -notlike "*$control*") { throw "Missing manifest security control: $control" }
 }
-$networkConfig = Get-Content -Raw 'app\src\main\res\xml\network_security_config.xml'
+$networkConfig = Get-Content -Raw (Join-Path $projectRoot 'app/src/main/res/xml/network_security_config.xml')
 if ($networkConfig -notlike '*cleartextTrafficPermitted="false"*') {
     throw 'Network security config does not explicitly deny cleartext traffic.'
 }
@@ -95,7 +98,7 @@ Write-Host 'Security audit: Android and unit verification'
 if (-not $SkipBuild) {
     Invoke-Checked $gradleWrapper @(':app:lintDebug', ':app:testDebugUnitTest', ':app:assembleDebug', ':app:assembleRelease')
 
-    $mergedManifestFile = Get-ChildItem 'app\build\intermediates\merged_manifests\release' -Recurse -Filter AndroidManifest.xml -ErrorAction SilentlyContinue | Select-Object -First 1
+    $mergedManifestFile = Get-ChildItem (Join-Path $projectRoot 'app/build/intermediates/merged_manifests/release') -Recurse -Filter AndroidManifest.xml -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -eq $mergedManifestFile) { throw 'Release merged manifest was not generated.' }
     [xml]$mergedManifest = Get-Content -Raw $mergedManifestFile.FullName
     $exportedComponents = @($mergedManifest.SelectNodes("//*[local-name()='application']/*[@*[local-name()='exported']='true']"))
@@ -115,21 +118,22 @@ if (-not $SkipBuild) {
 
 if (-not $SkipDependencyScan) {
     Write-Host 'Security audit: resolved dependency reports'
-    New-Item -ItemType Directory -Path 'build\security-audit' -Force | Out-Null
+    $securityAuditDir = Join-Path $projectRoot 'build/security-audit'
+    New-Item -ItemType Directory -Path $securityAuditDir -Force | Out-Null
     & $gradleWrapper ':app:dependencies' '--configuration' 'debugRuntimeClasspath' 2>&1 |
-        Tee-Object -FilePath 'build\security-audit\debug-runtime-dependencies.txt'
+        Tee-Object -FilePath (Join-Path $securityAuditDir 'debug-runtime-dependencies.txt')
     if ($LASTEXITCODE -ne 0) { throw 'Gradle dependency report failed.' }
     & $gradleWrapper ':app:dependencies' '--configuration' 'releaseRuntimeClasspath' 2>&1 |
-        Tee-Object -FilePath 'build\security-audit\release-runtime-dependencies.txt'
+        Tee-Object -FilePath (Join-Path $securityAuditDir 'release-runtime-dependencies.txt')
     if ($LASTEXITCODE -ne 0) { throw 'Gradle release dependency report failed.' }
     & $gradleWrapper ':app:buildEnvironment' 2>&1 |
-        Tee-Object -FilePath 'build\security-audit\app-build-environment.txt'
+        Tee-Object -FilePath (Join-Path $securityAuditDir 'app-build-environment.txt')
     if ($LASTEXITCODE -ne 0) { throw 'Gradle app build-environment report failed.' }
     & $gradleWrapper 'buildEnvironment' 2>&1 |
-        Tee-Object -FilePath 'build\security-audit\root-build-environment.txt'
+        Tee-Object -FilePath (Join-Path $securityAuditDir 'root-build-environment.txt')
     if ($LASTEXITCODE -ne 0) { throw 'Gradle root build-environment report failed.' }
     & $gradleWrapper ':app:dependencyInsight' '--dependency' 'okhttp' '--configuration' 'debugRuntimeClasspath' 2>&1 |
-        Tee-Object -FilePath 'build\security-audit\okhttp-dependency-insight.txt'
+        Tee-Object -FilePath (Join-Path $securityAuditDir 'okhttp-dependency-insight.txt')
     if ($LASTEXITCODE -ne 0) { throw 'Gradle dependency insight failed.' }
     if (Get-Command osv-scanner -ErrorAction SilentlyContinue) {
         Invoke-Checked 'osv-scanner' @('scan', 'source', '-r', '.')
@@ -138,4 +142,4 @@ if (-not $SkipDependencyScan) {
     }
 }
 
-Write-Host 'Security audit completed. Review build\security-audit and CI vulnerability results.'
+Write-Host 'Security audit completed. Review build/security-audit and CI vulnerability results.'
