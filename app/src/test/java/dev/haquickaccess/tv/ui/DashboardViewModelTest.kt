@@ -865,7 +865,7 @@ class DashboardViewModelTest {
         val session = FakeSession()
         val channel = FakeChannelGateway()
         val viewModel = viewModel(
-            FakeSettingsStore(AppSettings(baseUrl = "https://ha.example", homeChannelEnabled = true)),
+            FakeSettingsStore(AppSettings(baseUrl = "https://ha.example")),
             session,
             channel,
         )
