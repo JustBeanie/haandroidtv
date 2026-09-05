@@ -24,6 +24,9 @@ function Invoke-Checked([string]$File, [string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "$File exited with code $LASTEXITCODE" }
 }
 
+$isWindowsHost = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+$gradleWrapper = if ($isWindowsHost) { '.\gradlew.bat' } else { './gradlew' }
+
 Write-Host 'Security audit: repository hygiene'
 $trackedSensitive = @(git ls-files --error-unmatch -- keystore.properties release-upload.jks 2>$null)
 if ($trackedSensitive.Count -gt 0) {
@@ -90,7 +93,7 @@ if ($networkConfig -notlike '*cleartextTrafficPermitted="false"*') {
 
 Write-Host 'Security audit: Android and unit verification'
 if (-not $SkipBuild) {
-    Invoke-Checked '.\gradlew.bat' @(':app:lintDebug', ':app:testDebugUnitTest', ':app:assembleDebug', ':app:assembleRelease')
+    Invoke-Checked $gradleWrapper @(':app:lintDebug', ':app:testDebugUnitTest', ':app:assembleDebug', ':app:assembleRelease')
 
     $mergedManifestFile = Get-ChildItem 'app\build\intermediates\merged_manifests\release' -Recurse -Filter AndroidManifest.xml -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -eq $mergedManifestFile) { throw 'Release merged manifest was not generated.' }
@@ -113,19 +116,19 @@ if (-not $SkipBuild) {
 if (-not $SkipDependencyScan) {
     Write-Host 'Security audit: resolved dependency reports'
     New-Item -ItemType Directory -Path 'build\security-audit' -Force | Out-Null
-    & .\gradlew.bat ':app:dependencies' '--configuration' 'debugRuntimeClasspath' 2>&1 |
+    & $gradleWrapper ':app:dependencies' '--configuration' 'debugRuntimeClasspath' 2>&1 |
         Tee-Object -FilePath 'build\security-audit\debug-runtime-dependencies.txt'
     if ($LASTEXITCODE -ne 0) { throw 'Gradle dependency report failed.' }
-    & .\gradlew.bat ':app:dependencies' '--configuration' 'releaseRuntimeClasspath' 2>&1 |
+    & $gradleWrapper ':app:dependencies' '--configuration' 'releaseRuntimeClasspath' 2>&1 |
         Tee-Object -FilePath 'build\security-audit\release-runtime-dependencies.txt'
     if ($LASTEXITCODE -ne 0) { throw 'Gradle release dependency report failed.' }
-    & .\gradlew.bat ':app:buildEnvironment' 2>&1 |
+    & $gradleWrapper ':app:buildEnvironment' 2>&1 |
         Tee-Object -FilePath 'build\security-audit\app-build-environment.txt'
     if ($LASTEXITCODE -ne 0) { throw 'Gradle app build-environment report failed.' }
-    & .\gradlew.bat 'buildEnvironment' 2>&1 |
+    & $gradleWrapper 'buildEnvironment' 2>&1 |
         Tee-Object -FilePath 'build\security-audit\root-build-environment.txt'
     if ($LASTEXITCODE -ne 0) { throw 'Gradle root build-environment report failed.' }
-    & .\gradlew.bat ':app:dependencyInsight' '--dependency' 'okhttp' '--configuration' 'debugRuntimeClasspath' 2>&1 |
+    & $gradleWrapper ':app:dependencyInsight' '--dependency' 'okhttp' '--configuration' 'debugRuntimeClasspath' 2>&1 |
         Tee-Object -FilePath 'build\security-audit\okhttp-dependency-insight.txt'
     if ($LASTEXITCODE -ne 0) { throw 'Gradle dependency insight failed.' }
     if (Get-Command osv-scanner -ErrorAction SilentlyContinue) {

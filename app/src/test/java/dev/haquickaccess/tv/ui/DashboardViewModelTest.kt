@@ -864,16 +864,76 @@ class DashboardViewModelTest {
     fun `unconfigured session and disabled channel do not perform background work`() = runTest {
         val session = FakeSession()
         val channel = FakeChannelGateway()
-        val viewModel = viewModel(FakeSettingsStore(AppSettings(baseUrl = "https://ha.example")), session, channel)
+        val viewModel = viewModel(
+            FakeSettingsStore(AppSettings(baseUrl = "https://ha.example", homeChannelEnabled = true)),
+            session,
+            channel,
+        )
         observe(viewModel)
 
         viewModel.refreshHomeChannel()
+        viewModel.refreshHomeChannelWhenReady()
         viewModel.onForeground()
         viewModel.disableHomeChannel()
+        viewModel.refreshHomeChannelWhenReady()
+        runCurrent()
 
         assertTrue(session.starts.isEmpty())
         assertEquals(0, channel.creates)
         assertTrue(channel.removed.isEmpty())
+    }
+
+    @Test
+    fun `home channel refresh waits for initial states before publishing`() = runTest {
+        val entity = entity("light.kitchen", "on")
+        val settings = FakeSettingsStore(
+            AppSettings(
+                baseUrl = "https://ha.example",
+                tokenEnvelope = "saved",
+                homeChannelEnabled = true,
+                homeShortcuts = listOf(
+                    dev.haquickaccess.tv.domain.model.ShortcutConfiguration(
+                        entity.entityId,
+                        ShortcutBehavior.TOGGLE,
+                    ),
+                ),
+            ),
+        )
+        val session = FakeSession(mapOf(entity.entityId to entity)).apply { receivePartialStates(emptyMap()) }
+        val channel = FakeChannelGateway()
+        val viewModel = viewModel(settings, session, channel)
+        observe(viewModel)
+
+        viewModel.refreshHomeChannelWhenReady()
+        runCurrent()
+        assertEquals(0, channel.creates)
+
+        session.connectWith(mapOf(entity.entityId to entity))
+        runCurrent()
+        assertEquals(1, channel.creates)
+    }
+
+    @Test
+    fun `home channel refresh stops after a connection failure without publishing`() = runTest {
+        val settings = FakeSettingsStore(
+            AppSettings(
+                baseUrl = "https://ha.example",
+                tokenEnvelope = "saved",
+                homeChannelEnabled = true,
+            ),
+        )
+        val session = FakeSession().apply { disconnectAndClearStates() }
+        val channel = FakeChannelGateway()
+        val viewModel = viewModel(settings, session, channel)
+        observe(viewModel)
+
+        viewModel.refreshHomeChannelWhenReady()
+        runCurrent()
+        assertEquals(0, channel.creates)
+
+        session.failConnection()
+        runCurrent()
+        assertEquals(0, channel.creates)
     }
 
     @Test
@@ -1268,6 +1328,10 @@ class DashboardViewModelTest {
             mutableEntities.value = entities
             mutableInitialStatesLoaded.value = true
             mutableStatus.value = ConnectionStatus.Connected("test")
+        }
+
+        fun failConnection() {
+            mutableStatus.value = ConnectionStatus.Failed("connection failed", retryable = true)
         }
 
         fun receivePartialStates(entities: Map<String, HaEntity>) {
