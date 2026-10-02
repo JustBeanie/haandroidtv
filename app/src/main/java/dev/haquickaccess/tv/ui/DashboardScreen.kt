@@ -235,7 +235,7 @@ private fun DashboardHero(
         Image(
             painter = painterResource(R.drawable.ambient_home_banner_v2),
             contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.matchParentSize(),
             contentScale = ContentScale.Crop,
         )
         Row(
