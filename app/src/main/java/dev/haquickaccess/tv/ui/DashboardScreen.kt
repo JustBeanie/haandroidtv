@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -78,6 +79,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -182,8 +184,14 @@ internal fun DashboardScreen(state: DashboardUiState, onEvent: DashboardViewMode
                     maxWidth >= 1_000.dp -> 4
                     else -> 3
                 }
+                // Reserve room for complete rows after the header/context strip.
+                // TV density makes a 1080p screen roughly 540dp tall.
+                val visibleRows = if (maxHeight >= 240.dp) 2 else 1
+                val tileHeight = ((maxHeight - 8.dp - 20.dp * (visibleRows - 1)) / visibleRows)
+                    .coerceIn(96.dp, 142.dp)
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columnCount),
+                    contentPadding = PaddingValues(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(20.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                     state = gridState,
@@ -192,6 +200,7 @@ internal fun DashboardScreen(state: DashboardUiState, onEvent: DashboardViewMode
                     itemsIndexed(dashboardTiles, key = { _, tile -> tile.entityId }) { index, tile ->
                         HomeAssistantTile(
                             tile = tile,
+                            height = tileHeight,
                             feedback = state.commandFeedback[tile.entityId],
                             onClick = { onEvent.performPrimaryAction(tile.entityId) },
                             onLongClick = { onEvent.openDetails(tile.entityId) },
@@ -235,7 +244,7 @@ private fun DashboardHero(
         Image(
             painter = painterResource(R.drawable.ambient_home_banner_v2),
             contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.matchParentSize(),
             contentScale = ContentScale.Crop,
         )
         Row(
@@ -425,6 +434,7 @@ internal fun LauncherRecoveryDialog(recovery: LauncherRecovery, onEvent: Dashboa
 @Composable
 private fun HomeAssistantTile(
     tile: DashboardTileUiModel,
+    height: Dp,
     feedback: CommandFeedback?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -459,7 +469,7 @@ private fun HomeAssistantTile(
         modifier = Modifier
             .then(if (upFocusRequester == null) Modifier else Modifier.focusProperties { up = upFocusRequester })
             .focusRequester(activeFocusRequester)
-            .height(142.dp)
+            .height(height)
             .fillMaxWidth()
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused(tile) }
             .onPreviewKeyEvent { event ->
