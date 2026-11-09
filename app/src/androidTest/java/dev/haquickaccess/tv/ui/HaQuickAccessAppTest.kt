@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -24,7 +25,6 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.Espresso.pressBack
-import androidx.test.platform.app.InstrumentationRegistry
 import dev.haquickaccess.tv.data.AppSettings
 import dev.haquickaccess.tv.data.ConnectionStatus
 import dev.haquickaccess.tv.data.HomeAssistantSession
@@ -109,7 +109,7 @@ class HaQuickAccessAppTest {
         }
 
         composeRule.onNodeWithContentDescription("den, 50%").performTouchInput { longClick() }
-        composeRule.onNodeWithText("Brightness: 50%").assertIsDisplayed()
+        composeRule.onNodeWithText("Brightness: 50%").awaitDisplayed().assertIsDisplayed()
         assertTrue(session.actions.isEmpty())
     }
 
@@ -132,9 +132,9 @@ class HaQuickAccessAppTest {
 
         composeRule.onNodeWithContentDescription("den, 50%").performTouchInput { longClick() }
 
-        composeRule.onNodeWithContentDescription("Cancel").assertIsFocused()
+        composeRule.onNodeWithContentDescription("Cancel").awaitFocused().assertIsFocused()
         composeRule.onNodeWithContentDescription("den, 50%").assertIsNotFocused()
-        composeRule.onNodeWithText("Brightness: 50%").assertIsDisplayed()
+        composeRule.onNodeWithText("Brightness: 50%").awaitDisplayed().assertIsDisplayed()
         assertExactlyOneFocusedNode()
 
         pressBack()
@@ -225,13 +225,8 @@ class HaQuickAccessAppTest {
             HaQuickAccessApp(state, viewModel)
         }
 
-        composeRule.onNodeWithText("Brightness: 50%").assertIsDisplayed()
-        composeRule.waitUntil(5_000) {
-            runCatching {
-                composeRule.onNodeWithContentDescription("Cancel").assertIsFocused()
-            }.isSuccess
-        }
-        composeRule.onNodeWithContentDescription("Cancel").assertIsFocused()
+        composeRule.onNodeWithText("Brightness: 50%").awaitDisplayed().assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Cancel").awaitFocused().assertIsFocused()
         assertExactlyOneFocusedNode()
     }
 
@@ -340,7 +335,7 @@ class HaQuickAccessAppTest {
         assertExactlyOneFocusedNode()
 
         execution.complete(Result.success(Unit))
-        composeRule.onNodeWithContentDescription("den, Updated ✓").assertIsFocused()
+        composeRule.onNodeWithContentDescription("den, Updated ✓").awaitFocused().assertIsFocused()
         assertExactlyOneFocusedNode()
     }
 
@@ -372,7 +367,7 @@ class HaQuickAccessAppTest {
 
     @Test
     fun dashboard_fits_two_complete_tile_rows_in_a_1080p_viewport() {
-        val density = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
+        val density = composeRule.density.density
         val widthDp = 1920f / density
         val heightDp = 1080f / density
         val fixture = BenchmarkFixture.dashboardState(tileCount = 6)
@@ -397,7 +392,9 @@ class HaQuickAccessAppTest {
             .assertIsDisplayed()
             .getUnclippedBoundsInRoot()
             .bottom.value
-        assertTrue("Second dashboard row must fit at 1080p", secondRowBottom <= heightDp)
+        val viewport = composeRule.onNodeWithTag("app_root").getUnclippedBoundsInRoot()
+        assertEquals("Test viewport must retain its requested height", heightDp, (viewport.bottom - viewport.top).value, 0.5f)
+        assertTrue("Second dashboard row bottom $secondRowBottom must fit within $viewport", secondRowBottom <= viewport.bottom.value)
         assertTrue("Focused cards must not overlap horizontally", firstTile.right < secondTile.left)
         assertTrue("Focused cards must not overlap vertically", firstTile.bottom < fourthTile.top)
         assertExactlyOneFocusedNode()
@@ -405,7 +402,7 @@ class HaQuickAccessAppTest {
 
     @Test
     fun dashboard_primary_controls_fit_in_a_720p_viewport() {
-        val density = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
+        val density = composeRule.density.density
         val widthDp = 1280f / density
         val heightDp = 720f / density
         val fixture = BenchmarkFixture.dashboardState(tileCount = 3)
@@ -428,8 +425,20 @@ class HaQuickAccessAppTest {
             .assertIsDisplayed()
             .getUnclippedBoundsInRoot()
             .bottom.value
-        assertTrue("First dashboard row must fit at 720p", firstRowBottom <= heightDp)
+        val viewport = composeRule.onNodeWithTag("app_root").getUnclippedBoundsInRoot()
+        assertEquals("Test viewport must retain its requested height", heightDp, (viewport.bottom - viewport.top).value, 0.5f)
+        assertTrue("First dashboard row bottom $firstRowBottom must fit within $viewport", firstRowBottom <= viewport.bottom.value)
         assertExactlyOneFocusedNode()
+    }
+
+    // ViewModel work runs outside Compose's idling resources. Wait for the
+    // resulting semantics/layout before asserting after an asynchronous event.
+    private fun SemanticsNodeInteraction.awaitDisplayed(): SemanticsNodeInteraction = apply {
+        composeRule.waitUntil(10_000) { runCatching { assertIsDisplayed() }.isSuccess }
+    }
+
+    private fun SemanticsNodeInteraction.awaitFocused(): SemanticsNodeInteraction = apply {
+        composeRule.waitUntil(10_000) { runCatching { assertIsFocused() }.isSuccess }
     }
 
     private fun assertExactlyOneFocusedNode() {
