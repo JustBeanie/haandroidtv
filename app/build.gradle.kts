@@ -99,6 +99,7 @@ dependencyLocking {
 // shipped in the application APK, but they still execute in the release CI.
 configurations.configureEach {
     resolutionStrategy.force(
+        "com.google.guava:guava:33.7.2-jre",
         "io.netty:netty-buffer:4.1.137.Final",
         "io.netty:netty-codec:4.1.137.Final",
         "io.netty:netty-codec-http:4.1.137.Final",
@@ -112,9 +113,9 @@ configurations.configureEach {
         "io.netty:netty-transport-native-unix-common:4.1.137.Final",
         "org.apache.commons:commons-lang3:3.18.0",
         "org.apache.httpcomponents:httpclient:4.5.13",
-        "org.bouncycastle:bcpkix-jdk18on:1.85",
-        "org.bouncycastle:bcprov-jdk18on:1.85",
-        "org.bouncycastle:bcutil-jdk18on:1.85",
+        "org.bouncycastle:bcpkix-jdk18on:1.86",
+        "org.bouncycastle:bcprov-jdk18on:1.86",
+        "org.bouncycastle:bcutil-jdk18on:1.86",
     )
 }
 
