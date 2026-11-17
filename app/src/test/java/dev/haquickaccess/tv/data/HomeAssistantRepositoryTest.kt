@@ -73,7 +73,7 @@ class HomeAssistantRepositoryTest {
     }
 
     @Test
-    fun `an unacknowledged service call times out and resets the session`() = runTest {
+    fun `an unacknowledged service call times out without disconnecting a replacement session`() = runTest {
         val gateway = FakeGateway(results = ArrayDeque()).apply {
             pendingCall = CompletableDeferred()
         }
@@ -87,11 +87,11 @@ class HomeAssistantRepositoryTest {
 
         assertTrue(result.await().isFailure)
         assertEquals("Home Assistant command timed out", result.await().exceptionOrNull()?.message)
-        assertEquals(1, gateway.disconnectCalls)
+        assertEquals(0, gateway.disconnectCalls)
     }
 
     @Test
-    fun `an unexpected service call error resets the session and returns a failure`() = runTest {
+    fun `an unexpected service call error returns a failure without disconnecting a replacement session`() = runTest {
         val gateway = FakeGateway(results = ArrayDeque()).apply {
             callFailure = IllegalStateException("Socket failed")
         }
@@ -101,7 +101,7 @@ class HomeAssistantRepositoryTest {
 
         assertTrue(result.isFailure)
         assertEquals("Socket failed", result.exceptionOrNull()?.message)
-        assertEquals(1, gateway.disconnectCalls)
+        assertEquals(0, gateway.disconnectCalls)
     }
 
     private class FakeGateway(

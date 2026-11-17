@@ -7,6 +7,10 @@ on:
       - main
       - 'codex/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -25,8 +29,11 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
-      - run: ./gradlew lintDebug
+      - run: ./gradlew :app:lintDebug :app:lintRelease
       - run: ./gradlew testDebugUnitTest koverXmlReportDebug koverVerifyDebug :app:assembleDebug :app:assembleRelease
+      - name: Verify TV release artifacts
+        shell: pwsh
+        run: ./tools/verify-release-artifacts.ps1 -Artifact app/build/outputs/apk/release/app-release-unsigned.apk
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -37,6 +44,14 @@ jobs:
             app/build/outputs/apk/release/*.apk
 
   tv-ui:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 33
+            arch: x86
+          - api: 36
+            arch: x86_64
     needs: unit-and-lint
     runs-on: ubuntu-latest
     timeout-minutes: 55
@@ -57,9 +72,9 @@ jobs:
       - name: Run Android TV smoke test
         uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
         with:
-          api-level: 33
+          api-level: ${{ matrix.api }}
           target: android-tv
-          arch: x86
+          arch: ${{ matrix.arch }}
           profile: tv_1080p
           force-avd-creation: true
           disable-linux-hw-accel: false
@@ -68,12 +83,13 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
           script: |
             bash tools/wait-for-tv-emulator.sh
-            ./gradlew :app:connectedDebugAndroidTest
+            bash tools/run-tv-tests.sh :app:connectedDebugAndroidTest
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
-          name: tv-ui-reports
+          name: tv-ui-reports-${{ matrix.api }}
           path: |
+            build/tv-diagnostics
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
 
@@ -109,12 +125,13 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
           script: |
             bash tools/wait-for-tv-emulator.sh
-            ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.dryRunMode.enable=true
+            bash tools/run-tv-tests.sh :benchmark:connectedBenchmarkReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.dryRunMode.enable=true
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: tv-benchmark-reports
           path: |
+            build/tv-diagnostics
             benchmark/build/outputs/connected_android_test_additional_output
             benchmark/build/reports/androidTests
             benchmark/build/outputs/androidTest-results

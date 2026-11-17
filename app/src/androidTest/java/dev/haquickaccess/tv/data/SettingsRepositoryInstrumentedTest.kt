@@ -4,6 +4,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import dev.haquickaccess.tv.domain.model.TileConfiguration
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -13,6 +17,31 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SettingsRepositoryInstrumentedTest {
+    @Test
+    fun concurrent_control_edits_preserve_every_addition_and_contiguous_positions() = runBlocking {
+        val repository = SettingsRepository(
+            InstrumentationRegistry.getInstrumentation().targetContext.applicationContext,
+            TokenCipher(), Json { ignoreUnknownKeys = true },
+        )
+        repository.clearConnection()
+        try {
+            coroutineScope {
+                repeat(40) { index ->
+                    launch(Dispatchers.Default) {
+                        repository.updateControls { current ->
+                            current.copy(tiles = current.tiles + TileConfiguration("light.concurrent_$index", current.tiles.size))
+                        }
+                    }
+                }
+            }
+            val tiles = repository.settings.first().tiles
+            assertEquals(40, tiles.map { it.entityId }.distinct().size)
+            assertEquals((0 until 40).toList(), tiles.map { it.position })
+        } finally {
+            repository.clearConnection()
+        }
+    }
+
     @Test
     fun token_is_encrypted_at_rest_and_removed_with_the_connection() = runBlocking {
         val repository = SettingsRepository(

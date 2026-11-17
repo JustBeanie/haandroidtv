@@ -16,6 +16,7 @@ import dev.haquickaccess.tv.platform.HomeChannelGateway
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -688,7 +689,7 @@ class DashboardViewModelTest {
 
         viewModel.closeScreen()
 
-        assertEquals(AppScreen.Dashboard, viewModel.uiState.value.screen)
+        assertEquals(AppScreen.Settings, viewModel.uiState.value.screen)
         assertNull(viewModel.uiState.value.launcherShortcutReplacement)
     }
 
@@ -771,7 +772,7 @@ class DashboardViewModelTest {
         viewModel.refreshHomeChannel()
         viewModel.disableHomeChannel()
 
-        assertEquals(AppScreen.Dashboard, viewModel.uiState.value.screen)
+        assertEquals(AppScreen.Settings, viewModel.uiState.value.screen)
         assertEquals(first.entityId, settings.value.lastFocusedEntityId)
         assertEquals(listOf(second.entityId), settings.value.tiles.map(TileConfiguration::entityId))
         assertTrue(settings.value.homeShortcuts.isEmpty())
@@ -937,7 +938,7 @@ class DashboardViewModelTest {
     }
 
     @Test
-    fun `failed setup validation does not persist a token and resumes the previous session`() = runTest {
+    fun `failed setup validation leaves the previous session running`() = runTest {
         val settings = FakeSettingsStore(AppSettings(baseUrl = "https://old.example", tokenEnvelope = "saved"))
         val session = FakeSession().apply { validationResult = Result.failure(SecurityException("Token rejected")) }
         val viewModel = viewModel(settings, session)
@@ -951,7 +952,7 @@ class DashboardViewModelTest {
         assertEquals("https://old.example", settings.value.baseUrl)
         assertEquals(listOf("https://new.example" to "bad-token"), session.validations)
         assertEquals(
-            listOf("https://old.example" to "decrypted-token", "https://old.example" to "decrypted-token"),
+            listOf("https://old.example" to "decrypted-token"),
             session.starts,
         )
         assertTrue(viewModel.uiState.value.setupErrorMessage!!.contains("Token rejected"))
@@ -1108,6 +1109,7 @@ class DashboardViewModelTest {
         val snapshots = FakeTileSnapshotStore(
             TileSnapshot(
                 capturedAtEpochMillis = 1L,
+                connectionIdentity = settings.value.connectionIdentity,
                 tiles = listOf(TileSnapshotEntry(lamp.entityId, "Old den", "LIGHT", "Off", false, false)),
             ),
         )
@@ -1143,6 +1145,7 @@ class DashboardViewModelTest {
         val snapshots = FakeTileSnapshotStore(
             TileSnapshot(
                 capturedAtEpochMillis = 1L,
+                connectionIdentity = settings.value.connectionIdentity,
                 tiles = listOf(
                     TileSnapshotEntry(liveLamp.entityId, "Old den", "LIGHT", "Off", false, false),
                     TileSnapshotEntry(cachedSwitchId, "Reading", "SWITCH", "On", true, false),
@@ -1202,13 +1205,14 @@ class DashboardViewModelTest {
 
     @Test
     fun `clearing connection also clears persisted tile snapshot`() = runTest {
+        val settings = FakeSettingsStore(AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "saved"))
         val snapshots = FakeTileSnapshotStore(
             TileSnapshot(
                 capturedAtEpochMillis = 1L,
+                connectionIdentity = settings.value.connectionIdentity,
                 tiles = listOf(TileSnapshotEntry("light.den", "Den", "LIGHT", "On", true, false)),
             ),
         )
-        val settings = FakeSettingsStore(AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "saved"))
         val viewModel = viewModel(settings = settings, snapshots = snapshots)
         observe(viewModel)
 
@@ -1227,9 +1231,171 @@ class DashboardViewModelTest {
         assertTrue(viewModel.uiState.value.isProjectivyInstalled)
     }
 
+    @Test
+    fun backgroundCancelsValidationAndClearsTransientSecrets() = runTest {
+        val settings = FakeSettingsStore(AppSettings(baseUrl = "https://old.example", tokenEnvelope = "saved"))
+        val session = FakeSession().apply { pendingValidation = CompletableDeferred() }
+        val viewModel = viewModel(settings, session)
+        observe(viewModel)
+        viewModel.onForeground()
+        viewModel.updateSetupBaseUrl("https://new.example")
+        viewModel.updateSetupToken("new-token")
+        viewModel.saveConnection()
+        assertTrue(viewModel.uiState.value.isSavingConnection)
+        viewModel.onBackground()
+        session.pendingValidation?.complete(Result.success(Unit))
+        runCurrent()
+        assertEquals("https://old.example", settings.value.baseUrl)
+        assertEquals("", viewModel.uiState.value.setupToken)
+        assertFalse(viewModel.uiState.value.isSavingConnection)
+        assertEquals(1, session.starts.size)
+    }
+
+    @Test
+    fun invalidReplacementValidationReleasesSavingState() = runTest {
+        val session = FakeSession().apply { pendingValidation = CompletableDeferred() }
+        val viewModel = viewModel(session = session)
+        observe(viewModel)
+        viewModel.updateSetupBaseUrl("https://ha.example")
+        viewModel.updateSetupToken("token")
+        viewModel.saveConnection()
+        viewModel.updateSetupBaseUrl("http://invalid.example")
+        viewModel.saveConnection()
+        runCurrent()
+        assertFalse(viewModel.uiState.value.isSavingConnection)
+        assertEquals("Use an HTTPS URL", viewModel.uiState.value.setupErrorMessage)
+    }
+
+    @Test
+    fun backgroundCancelsPendingFeedbackWithoutReplayingCommands() = runTest {
+        val lamp = entity("light.den", "off")
+        val session = FakeSession(mapOf(lamp.entityId to lamp)).apply { pendingAction = CompletableDeferred() }
+        val viewModel = viewModel(session = session)
+        observe(viewModel)
+        viewModel.performPrimaryAction(lamp)
+        viewModel.onBackground()
+        session.pendingAction?.complete(Result.success(Unit))
+        runCurrent()
+        assertTrue(viewModel.uiState.value.commandFeedback.isEmpty())
+        assertEquals(1, session.actions.size)
+    }
+
+    @Test
+    fun cacheFromAnotherConnectionIsNeverShown() {
+        val settings = AppSettings(baseUrl = "https://new.example", tokenEnvelope = "new", tiles = listOf(TileConfiguration("light.den", 0)))
+        val snapshot = TileSnapshot(capturedAtEpochMillis = 1L, connectionIdentity = "old-connection", tiles = listOf(TileSnapshotEntry("light.den", "Private room", "LIGHT", "On", true, false)))
+        val state = DashboardUiState(settings = settings, tileSnapshot = snapshot)
+        assertTrue(state.dashboardTiles.isEmpty())
+        assertFalse(state.isShowingCachedSnapshot)
+    }
+
+    @Test
+    fun focusPersistenceDoesNotDecryptOrRestartAnActiveConnection() = runTest {
+        val settings = FakeSettingsStore(AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "saved"))
+        val session = FakeSession()
+        val viewModel = viewModel(settings, session)
+        observe(viewModel)
+        viewModel.onForeground()
+        repeat(10) { viewModel.saveFocus("light.focus_$it"); advanceTimeBy(301); runCurrent() }
+        assertEquals(1, settings.decrypts)
+        assertEquals(1, session.starts.size)
+    }
+
+    @Test
+    fun navigationRestoresTheLastFavoriteOrFirstAvailableTile() = runTest {
+        val lamp = entity("light.den", "off")
+        val second = entity("switch.desk", "off")
+        val settings = FakeSettingsStore(AppSettings(tiles = listOf(TileConfiguration("light.removed", 0), TileConfiguration(lamp.entityId, 1), TileConfiguration(second.entityId, 2)), lastFocusedEntityId = second.entityId))
+        val viewModel = viewModel(settings, FakeSession(mapOf(lamp.entityId to lamp, second.entityId to second)))
+        observe(viewModel)
+        viewModel.openSettings()
+        viewModel.closeScreen()
+        assertEquals(second.entityId, viewModel.uiState.value.focusRequest?.entityId)
+        settings.saveLastFocusedEntity("light.missing")
+        viewModel.openAllControls()
+        viewModel.closeScreen()
+        assertEquals(lamp.entityId, viewModel.uiState.value.focusRequest?.entityId)
+        viewModel.openSettings()
+        viewModel.openConnectionSetup()
+        viewModel.closeScreen()
+        assertEquals(AppScreen.Settings, viewModel.uiState.value.screen)
+        viewModel.openDiagnostics()
+        viewModel.closeScreen()
+        assertEquals(AppScreen.Settings, viewModel.uiState.value.screen)
+        viewModel.openPrivacyPolicy()
+        viewModel.closeScreen()
+        assertEquals(AppScreen.Settings, viewModel.uiState.value.screen)
+        settings.saveTiles(emptyList())
+        viewModel.openFavorites()
+        assertEquals(AppScreen.Dashboard, viewModel.uiState.value.screen)
+    }
+
+    @Test
+    fun closingBrowserDetailsKeepsTheBrowserAndDoesNotRequestFavoriteFocus() = runTest {
+        val lamp = entity("light.den", "on", attributes = mapOf("brightness" to JsonPrimitive(100)))
+        val viewModel = viewModel(session = FakeSession(mapOf(lamp.entityId to lamp)))
+        observe(viewModel)
+        viewModel.openAllControls()
+        viewModel.openDetails(lamp)
+        viewModel.closeDetails()
+        viewModel.closeDetails()
+        assertEquals(AppScreen.AllControls, viewModel.uiState.value.screen)
+        assertNull(viewModel.uiState.value.focusRequest)
+        assertNull(viewModel.uiState.value.details)
+    }
+
+    @Test
+    fun clearingViewModelCancelsQueuedFocusAndSnapshotWrites() = runTest {
+        val lamp = entity("light.den", "on")
+        val settings = FakeSettingsStore(AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "saved", tiles = listOf(TileConfiguration(lamp.entityId, 0))))
+        val snapshots = FakeTileSnapshotStore()
+        val session = FakeSession(mapOf(lamp.entityId to lamp))
+        val viewModel = viewModel(settings, session, snapshots = snapshots)
+        observe(viewModel)
+        viewModel.saveFocus(lamp.entityId)
+        val store = androidx.lifecycle.ViewModelStore()
+        store.put("dashboard", viewModel)
+        store.clear()
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertTrue(settings.focusSaves.isEmpty())
+        assertNull(snapshots.value)
+        assertEquals(1, session.stops)
+    }
+
+    @Test
+    fun cachedModelsContainOnlyConfiguredControlsFromTheSameConnection() {
+        val settings = AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "saved", tiles = listOf(TileConfiguration("light.den", 0), TileConfiguration("light.missing", 1)))
+        val snapshot = TileSnapshot(capturedAtEpochMillis = 1L, connectionIdentity = settings.connectionIdentity, tiles = listOf(TileSnapshotEntry("switch.other", "Other", "SWITCH", "On", true, false)))
+        val state = DashboardUiState(settings = settings, tileSnapshot = snapshot)
+        assertTrue(state.dashboardTiles.isEmpty())
+        assertFalse(state.isShowingCachedSnapshot)
+        assertTrue(state.copy(tileSnapshot = null).dashboardTiles.isEmpty())
+        val live = state.copy(entities = mapOf("light.den" to entity("light.den", "on")), areInitialStatesLoaded = true)
+        assertFalse(live.isShowingCachedSnapshot)
+        assertEquals(listOf("light.den"), live.dashboardTiles.map { it.entityId })
+    }
+
     private fun TestScope.observe(viewModel: DashboardViewModel) {
         backgroundScope.launch { viewModel.uiState.collect() }
         runCurrent()
+    }
+
+    @Test
+    fun removingSavedTokenStopsTheActiveSession() = runTest {
+        val settings = FakeSettingsStore(AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "saved"))
+        val session = FakeSession()
+        val viewModel = viewModel(settings, session)
+        observe(viewModel)
+        viewModel.onForeground()
+        runCurrent()
+        assertEquals(1, session.starts.size)
+
+        settings.updateControls { it.copy(tokenEnvelope = null) }
+        runCurrent()
+
+        assertEquals(1, session.stops)
+        assertEquals(ConnectionStatus.Disconnected, session.status.value)
     }
 
     private fun viewModel(
@@ -1251,7 +1417,11 @@ class DashboardViewModelTest {
         val value: AppSettings get() = mutableSettings.value
         var savedConnection: Pair<String, String>? = null
         var decryptFailure: Throwable? = null
+        var decrypts = 0
         val focusSaves = mutableListOf<String>()
+
+        override suspend fun updateControls(transform: (AppSettings) -> AppSettings): AppSettings =
+            mutableSettings.updateAndGet(transform)
 
         override suspend fun saveConnection(baseUrl: String, token: String) {
             savedConnection = baseUrl to token
@@ -1259,6 +1429,7 @@ class DashboardViewModelTest {
         }
 
         override fun decryptToken(settings: AppSettings): String? {
+            decrypts += 1
             decryptFailure?.let { throw it }
             return settings.tokenEnvelope?.let { "decrypted-token" }
         }

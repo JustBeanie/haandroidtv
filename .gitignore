@@ -22,3 +22,6 @@ app/google-services.json
 *.apk
 *.aab
 tools/jdk17/
+
+# Local native UI review captures
+.impeccable/review/

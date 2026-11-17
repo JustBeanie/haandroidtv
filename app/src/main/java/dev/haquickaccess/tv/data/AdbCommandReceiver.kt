@@ -14,6 +14,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import dev.haquickaccess.tv.platform.HomeChannelTransactions
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import dev.haquickaccess.tv.platform.HomeChannelGateway
@@ -35,16 +39,23 @@ class AdbCommandReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
-            val result = try {
-                execute(context, intent)
-            } catch (exception: IllegalArgumentException) {
-                CommandResult(AdbCommandContract.RESULT_INVALID_COMMAND, exception.message ?: "Invalid command")
-            } catch (exception: Exception) {
-                CommandResult(AdbCommandContract.RESULT_FAILED, exception.message ?: "ADB command failed")
+            try {
+                val result = try {
+                    withTimeout(8_000) {
+                        HomeChannelTransactions.mutex.withLock { execute(context.applicationContext, intent) }
+                    }
+                } catch (_: TimeoutCancellationException) {
+                    CommandResult(AdbCommandContract.RESULT_FAILED, "ADB command timed out")
+                } catch (exception: IllegalArgumentException) {
+                    CommandResult(AdbCommandContract.RESULT_INVALID_COMMAND, exception.message ?: "Invalid command")
+                } catch (exception: Exception) {
+                    CommandResult(AdbCommandContract.RESULT_FAILED, exception.message ?: "ADB command failed")
+                }
+                pendingResult.setResultCode(result.code)
+                pendingResult.setResultData(result.message.take(MAX_RESULT_LENGTH))
+            } finally {
+                pendingResult.finish()
             }
-            pendingResult.setResultCode(result.code)
-            pendingResult.setResultData(result.message.take(MAX_RESULT_LENGTH))
-            pendingResult.finish()
         }
     }
 
@@ -149,7 +160,12 @@ class AdbCommandReceiver : BroadcastReceiver() {
             output.toByteArray()
         }
         require(bytes.isNotEmpty()) { "Configuration file is empty" }
-        return json.decodeFromString<AdbConfiguration>(String(bytes, Charsets.UTF_8)).also {
+        val configuration = try {
+            json.decodeFromString<AdbConfiguration>(String(bytes, Charsets.UTF_8))
+        } catch (_: kotlinx.serialization.SerializationException) {
+            throw IllegalArgumentException("Invalid configuration JSON")
+        }
+        return configuration.also {
             AdbConfigurationValidator.validate(it)
         }
     }

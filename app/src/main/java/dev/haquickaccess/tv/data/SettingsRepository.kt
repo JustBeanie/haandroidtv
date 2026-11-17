@@ -13,6 +13,10 @@ import dev.haquickaccess.tv.domain.model.TileConfiguration
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -28,7 +32,14 @@ data class AppSettings(
     val homeChannelEnabled: Boolean = false,
     val channelId: Long? = null,
     val lastFocusedEntityId: String? = null,
-)
+) {
+    val connectionIdentity: String? by lazy {
+        if (baseUrl == null || tokenEnvelope == null) null else
+            java.security.MessageDigest.getInstance("SHA-256")
+                .digest((baseUrl + "\n" + tokenEnvelope).toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+    }
+}
 
 interface SettingsStore {
     val settings: Flow<AppSettings>
@@ -39,6 +50,8 @@ interface SettingsStore {
     suspend fun setHomeChannel(enabled: Boolean, channelId: Long? = null)
     suspend fun saveLastFocusedEntity(entityId: String)
     suspend fun clearConnection()
+    /** Atomically transform the current tiles and shortcuts, never a UI snapshot. */
+    suspend fun updateControls(transform: (AppSettings) -> AppSettings): AppSettings
 }
 
 @Singleton
@@ -47,55 +60,60 @@ class SettingsRepository @Inject constructor(
     private val cipher: TokenCipher,
     private val json: Json,
 ) : SettingsStore {
-    override val settings: Flow<AppSettings> = context.settingsDataStore.data.map { preferences ->
-        AppSettings(
-            baseUrl = preferences[Keys.baseUrl],
-            tokenEnvelope = preferences[Keys.tokenEnvelope],
-            tiles = preferences[Keys.tiles]?.let { decodeTiles(it) }.orEmpty(),
-            homeShortcuts = preferences[Keys.shortcuts]?.let { decodeShortcuts(it) }.orEmpty(),
-            homeChannelEnabled = preferences[Keys.homeChannelEnabled] ?: false,
-            channelId = preferences[Keys.channelId],
-            lastFocusedEntityId = preferences[Keys.lastFocusedEntityId],
-        )
-    }
+    private val connectionMutex = Mutex()
+    override val settings: Flow<AppSettings> = context.settingsDataStore.data.map(::readSettings)
 
-    override suspend fun saveConnection(baseUrl: String, token: String) {
-        val normalizedUrl = UrlValidator.normalize(baseUrl).getOrThrow()
-        require(token.isNotBlank()) { "Home Assistant token cannot be blank" }
-        require(token.length <= MAX_TOKEN_LENGTH) { "Home Assistant token is too long" }
-        val encryptedToken = cipher.encrypt(token)
-        context.settingsDataStore.edit {
-            it[Keys.baseUrl] = normalizedUrl
-            it[Keys.tokenEnvelope] = encryptedToken
-        }
-    }
+    private fun readSettings(preferences: Preferences): AppSettings = AppSettings(
+        baseUrl = preferences[Keys.baseUrl],
+        tokenEnvelope = preferences[Keys.tokenEnvelope],
+        tiles = preferences[Keys.tiles]?.let { decodeTiles(it) }.orEmpty(),
+        homeShortcuts = preferences[Keys.shortcuts]?.let { decodeShortcuts(it) }.orEmpty(),
+        homeChannelEnabled = preferences[Keys.homeChannelEnabled] ?: false,
+        channelId = preferences[Keys.channelId],
+        lastFocusedEntityId = preferences[Keys.lastFocusedEntityId],
+    )
 
-    suspend fun applyConfiguration(configuration: AdbConfiguration) {
-        AdbConfigurationValidator.validate(configuration)
-        val normalizedUrl = configuration.baseUrl?.let { UrlValidator.normalize(it).getOrThrow() }
-        val encryptedToken = configuration.token?.let { token ->
+    override suspend fun saveConnection(baseUrl: String, token: String): Unit = withContext(Dispatchers.IO) {
+        connectionMutex.withLock {
+            val normalizedUrl = UrlValidator.normalize(baseUrl).getOrThrow()
             require(token.isNotBlank()) { "Home Assistant token cannot be blank" }
             require(token.length <= MAX_TOKEN_LENGTH) { "Home Assistant token is too long" }
-            cipher.encrypt(token)
+            val encryptedToken = cipher.encrypt(token)
+            context.settingsDataStore.edit {
+                it[Keys.baseUrl] = normalizedUrl
+                it[Keys.tokenEnvelope] = encryptedToken
+            }
         }
-        val tiles = configuration.tiles?.mapIndexed { position, entityId ->
-            TileConfiguration(entityId, position)
-        }
-        val shortcuts = configuration.shortcuts?.map { shortcut ->
-            ShortcutConfiguration(
-                entityId = shortcut.entityId,
-                behavior = ShortcutBehavior.valueOf(shortcut.behavior.uppercase(Locale.ROOT)),
-            )
-        }
+    }
 
-        context.settingsDataStore.edit {
-            if (normalizedUrl != null) it[Keys.baseUrl] = normalizedUrl
-            if (encryptedToken != null) it[Keys.tokenEnvelope] = encryptedToken
-            if (tiles != null) it[Keys.tiles] = json.encodeToString(tiles)
-            if (shortcuts != null) it[Keys.shortcuts] = json.encodeToString(shortcuts)
-            configuration.homeChannelEnabled?.let { enabled ->
-                it[Keys.homeChannelEnabled] = enabled
-                if (!enabled) it.remove(Keys.channelId)
+    suspend fun applyConfiguration(configuration: AdbConfiguration) = withContext(Dispatchers.IO) {
+        connectionMutex.withLock {
+            AdbConfigurationValidator.validate(configuration)
+            val normalizedUrl = configuration.baseUrl?.let { UrlValidator.normalize(it).getOrThrow() }
+            val encryptedToken = configuration.token?.let { token ->
+                require(token.isNotBlank()) { "Home Assistant token cannot be blank" }
+                require(token.length <= MAX_TOKEN_LENGTH) { "Home Assistant token is too long" }
+                cipher.encrypt(token)
+            }
+            val tiles = configuration.tiles?.mapIndexed { position, entityId ->
+                TileConfiguration(entityId, position)
+            }
+            val shortcuts = configuration.shortcuts?.map { shortcut ->
+                ShortcutConfiguration(
+                    entityId = shortcut.entityId,
+                    behavior = ShortcutBehavior.valueOf(shortcut.behavior.uppercase(Locale.ROOT)),
+                )
+            }
+
+            context.settingsDataStore.edit {
+                if (normalizedUrl != null) it[Keys.baseUrl] = normalizedUrl
+                if (encryptedToken != null) it[Keys.tokenEnvelope] = encryptedToken
+                if (tiles != null) it[Keys.tiles] = json.encodeToString(tiles)
+                if (shortcuts != null) it[Keys.shortcuts] = json.encodeToString(shortcuts)
+                configuration.homeChannelEnabled?.let { enabled ->
+                    it[Keys.homeChannelEnabled] = enabled
+                    if (!enabled) it.remove(Keys.channelId)
+                }
             }
         }
     }
@@ -121,9 +139,22 @@ class SettingsRepository @Inject constructor(
         context.settingsDataStore.edit { it[Keys.lastFocusedEntityId] = entityId }
     }
 
-    override suspend fun clearConnection() {
-        cipher.clear()
-        context.settingsDataStore.edit { it.clear() }
+    override suspend fun clearConnection() = withContext(Dispatchers.IO) {
+        connectionMutex.withLock {
+            // Forget the envelope first: a failed key deletion must not leave unreadable credentials.
+            context.settingsDataStore.edit { it.clear() }
+            cipher.clear()
+        }
+    }
+
+    override suspend fun updateControls(transform: (AppSettings) -> AppSettings): AppSettings {
+        val preferences = context.settingsDataStore.edit { current ->
+            val updated = transform(readSettings(current))
+            current[Keys.tiles] = json.encodeToString(updated.tiles.distinctBy { it.entityId }
+                .mapIndexed { index, tile -> tile.copy(position = index) })
+            current[Keys.shortcuts] = json.encodeToString(updated.homeShortcuts.distinctBy { it.entityId }.take(4))
+        }
+        return readSettings(preferences)
     }
 
     private fun decodeTiles(value: String): List<TileConfiguration> = runCatching {

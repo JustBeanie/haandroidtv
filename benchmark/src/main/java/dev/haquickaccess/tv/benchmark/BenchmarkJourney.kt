@@ -44,17 +44,21 @@ internal fun MacrobenchmarkScope.navigateDashboardGrid() {
 }
 
 internal fun MacrobenchmarkScope.openSettingsAndReturn() {
-    device.pressDPadUp()
+    repeat(8) { device.pressDPadUp() }
+    repeat(2) { device.pressDPadRight() }
     device.pressDPadCenter()
-    device.waitForIdle()
+    check(device.wait(Until.hasObject(By.text("Manage controls")), 5_000)) { "Settings did not open" }
     device.pressBack()
-    device.waitForIdle()
+    // A departing Settings row can still be focused before the dashboard frame commits.
+    check(device.wait(Until.hasObject(By.res("tile_light.benchmark_1").focused(true)), 5_000)) {
+        "Dashboard focus was not restored after Settings"
+    }
     assertExactlyOneFocusedElement("settings Back return")
 }
 
 internal fun MacrobenchmarkScope.openDetailsAndReturn() {
     device.executeShellCommand("input keyevent --longpress ${KeyEvent.KEYCODE_DPAD_CENTER}")
-    device.waitForIdle()
+    check(device.wait(Until.hasObject(By.desc("Control details")), 5_000)) { "Details did not open" }
     device.pressBack()
     device.waitForIdle()
     assertExactlyOneFocusedElement("detail Back return")
