@@ -88,11 +88,43 @@ class HomeAssistantWebSocketTest {
         assertTrue(fixture.socket.cancelled)
     }
 
+    @Test fun largeInstallationSynchronizesWithoutRetainingUnsupportedEntities() = runTest {
+        val fixture = Fixture()
+        val connection = async { fixture.gateway.connect("https://ha.example", "token") }
+        runCurrent()
+        fixture.auth()
+        fixture.subscription()
+        val states = buildJsonArray {
+            repeat(3500) { index ->
+                add(buildJsonObject {
+                    put("entity_id", "sensor.test_$index")
+                    put("state", "on")
+                    putJsonObject("attributes") { put("description", "x".repeat(400)) }
+                })
+            }
+            add(buildJsonObject {
+                put("entity_id", "light.kitchen")
+                put("state", "off")
+                putJsonObject("attributes") { put("friendly_name", "Kitchen") }
+            })
+        }
+        val message = """{"id":2,"type":"result","success":true,"result":$states}"""
+        assertTrue(message.length > 1_048_576)
+        fixture.message(message)
+        assertTrue(connection.await().isSuccess)
+        assertTrue(fixture.gateway.initialStatesLoaded.value)
+        assertEquals(setOf("light.kitchen"), fixture.gateway.entities.value.keys)
+        fixture.changed("light.kitchen", "on")
+        assertEquals("on", fixture.gateway.entities.value["light.kitchen"]?.state)
+        fixture.gateway.disconnect()
+    }
+
     @Test fun oversizeAndFailedSendsReleaseSocket() = runTest {
         val fixture = connected()
-        fixture.message("x".repeat(1_048_577))
+        fixture.message("x".repeat(8 * 1_048_576 + 1))
         assertTrue(fixture.socket.cancelled)
         assertTrue(fixture.gateway.entities.value.isEmpty())
+        assertFalse(assertIs<ConnectionStatus.Failed>(fixture.gateway.status.value).retryable)
         val other = Fixture()
         val connection = async { other.gateway.connect("https://ha.example", "token") }
         runCurrent()

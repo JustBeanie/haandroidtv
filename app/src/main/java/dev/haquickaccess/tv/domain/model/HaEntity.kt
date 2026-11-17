@@ -8,6 +8,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 
 internal val homeAssistantEntityIdPattern = Regex("[a-z0-9_]+\\.[a-z0-9_]+")
+private val dimmableColorModes = setOf("brightness", "color_temp", "hs", "xy", "rgb", "rgbw", "rgbww", "white")
 
 data class HaEntity(
     val entityId: String,
@@ -34,7 +35,13 @@ data class HaEntity(
     private fun isStatelessAction(): Boolean = domain == "scene" || domain == "button" || domain == "input_button"
 
     private fun calculateCapabilities(): ControlCapabilities = when (domain) {
-        "light" -> ControlCapabilities(ControlKind.LIGHT, canToggle = true, canSetLevel = number("brightness") != null)
+        "light" -> ControlCapabilities(
+            ControlKind.LIGHT,
+            canToggle = true,
+            // Home Assistant clears current brightness while many lights are off.
+            // Declared color modes still describe their available controls.
+            canSetLevel = strings("supported_color_modes").any { it in dimmableColorModes } || number("brightness") != null,
+        )
         "switch" -> ControlCapabilities(ControlKind.SWITCH, canToggle = true)
         "fan" -> ControlCapabilities(ControlKind.FAN, canToggle = true, canSetLevel = number("percentage") != null)
         "input_boolean" -> ControlCapabilities(ControlKind.INPUT_BOOLEAN, canToggle = true)

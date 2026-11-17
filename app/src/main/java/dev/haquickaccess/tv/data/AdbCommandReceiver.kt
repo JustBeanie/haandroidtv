@@ -78,6 +78,10 @@ class AdbCommandReceiver : BroadcastReceiver() {
                     "Home channel requires at least one shortcut"
                 }
             }
+            if (configuration.homeChannelEnabled == false) {
+                // Remove the provider entry before applyConfiguration clears its ID.
+                settingsRepository.settings.first().channelId?.let(homeChannelGateway::remove)
+            }
             settingsRepository.applyConfiguration(configuration)
             if (configuration.baseUrl != null || configuration.token != null) {
                 tileSnapshotStore.clear()

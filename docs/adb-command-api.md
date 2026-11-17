@@ -91,6 +91,13 @@ adb shell am broadcast -n "$package/.data.AdbCommandReceiver" `
 The existing URI form is also supported and is useful for Android TV launcher
 and Home-channel integrations:
 
+Use this `am start` form when the app is in the background. Android can block
+activity launches from a broadcast receiver even when the shell is permitted
+to deliver the broadcast. A successful `Control dispatched` response confirms
+dispatch, not foreground launch. Similarly, follow a background configuration
+import with `am start -n "$package/dev.haquickaccess.tv.MainActivity"` when the
+app needs to become visible.
+
 ```powershell
 adb shell am start -W -a android.intent.action.VIEW `
   -d "haquickaccess://control/light.kitchen?behavior=toggle" `

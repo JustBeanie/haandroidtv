@@ -34,6 +34,27 @@ class HaEntityTest {
     }
 
     @Test
+    fun `dimming stays available while a light with supported color modes is off`() {
+        for (mode in listOf("brightness", "color_temp", "hs", "xy", "rgb", "rgbw", "rgbww", "white")) {
+            val entity = HaEntity("light.lamp", "off", JsonObject(mapOf(
+                "brightness" to JsonNull,
+                "supported_color_modes" to JsonArray(listOf(JsonPrimitive(mode))),
+            )))
+            assertTrue(entity.capabilities().canSetLevel, mode)
+        }
+    }
+
+    @Test
+    fun `on off only and unknown color modes do not imply dimming`() {
+        for (mode in listOf("onoff", "unknown", "future_mode")) {
+            val entity = HaEntity("light.lamp", "off", JsonObject(mapOf(
+                "supported_color_modes" to JsonArray(listOf(JsonPrimitive(mode))),
+            )))
+            assertFalse(entity.capabilities().canSetLevel, mode)
+        }
+    }
+
+    @Test
     fun `fan without percentage stays simple toggle`() {
         val entity = HaEntity("fan.tv", "off")
 

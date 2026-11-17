@@ -41,10 +41,15 @@ enforces the cold-launch and frame-overrun gates and all manual checks remain
 required. Without the flag, missing pending-feedback samples continue to fail
 closed; never infer a waiver from absent evidence.
 
-## Current physical evidence and user-approved waivers
+## Physical evidence and user-approved waivers
 
-The current release has measured physical Shield evidence on the configured
-four-tile dashboard:
+The November 16, 2026 upgrade and follow-up fixes are recorded in
+[Shield v0.3.1 validation](shield-v031-validation.md). The original v0.3.0 APK
+failed initial synchronization on the physical server; the follow-up build
+fixes that issue. The measurements below predate the redesign and must not be
+presented as measurements of v0.3.0 or v0.3.1.
+
+The earlier physical Shield run used the configured four-tile dashboard:
 
 - Cold launch: 410.5 ms median; 486 ms P95 and maximum.
 - Warm launch: 105.5 ms median; 193 ms P95 and maximum.
@@ -96,10 +101,10 @@ existing authenticated ADB connection.
   tile has focus again.
 - Hold the center/Select key on a dimmer tile and confirm it opens details;
   a normal Select must still perform the safe direct action.
-- Assign the Shield Settings button under **Settings → Remotes & Accessories →
-  Customize Settings button**. Press it from the launcher and from a media app;
-  it should launch HA Quick Access to the last focused tile without overlaying
-  the media app.
+- If the user chooses a Settings-button shortcut, assign it under **Settings →
+  Remotes & Accessories → Customize Settings button**, then check launch and
+  restored focus from both the launcher and a media app. The bedroom Shield's
+  user chose to retain Shield Settings, so its existing mapping stays unchanged.
 
 ## Connection and safety
 

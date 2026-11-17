@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import dev.haquickaccess.tv.domain.model.ControlKind
+import dev.haquickaccess.tv.data.ConnectionStatus
 
 @Composable
 internal fun DashboardScreen(state: DashboardUiState, onEvent: DashboardActions, navigationFocusRequester: FocusRequester? = null) {
@@ -124,8 +125,11 @@ internal fun DashboardScreen(state: DashboardUiState, onEvent: DashboardActions,
             }
             Spacer(Modifier.height(14.dp))
             if (dashboardTiles.isEmpty()) {
+                val awaitingSavedControls = state.settings.tiles.isNotEmpty() && !state.areInitialStatesLoaded
                 EmptyDashboard(
-                    onManage = onEvent::openTileManager,
+                    awaitingSavedControls = awaitingSavedControls,
+                    connectionFailed = state.connectionStatus is ConnectionStatus.Failed,
+                    onAction = if (awaitingSavedControls) onEvent::openDiagnostics else onEvent::openTileManager,
                     requestInitialFocus = state.launcherRecovery == null,
                     focusRequester = dashboardFocusRequester,
                     upFocusRequester = settingsFocusRequester,
@@ -186,7 +190,7 @@ private fun focusedActionHint(tile: DashboardTileUiModel, feedback: CommandFeedb
     !tile.live -> "Last known state · reconnecting before controls are enabled"
     tile.unavailable -> "Unavailable — check Home Assistant"
     tile.kind in setOf(ControlKind.LIGHT, ControlKind.SWITCH, ControlKind.FAN, ControlKind.INPUT_BOOLEAN, ControlKind.GROUP) ->
-        "Select to toggle · Hold Select for details"
+        if (tile.supportsDetails) "Select to toggle · Hold Select for details" else "Select to toggle"
     tile.kind in setOf(ControlKind.SCENE, ControlKind.SCRIPT, ControlKind.BUTTON) -> "Select to run"
     else -> "Select to view details"
 }
@@ -229,7 +233,9 @@ private fun FocusedControlContext(
 
 @Composable
 private fun EmptyDashboard(
-    onManage: () -> Unit,
+    awaitingSavedControls: Boolean,
+    connectionFailed: Boolean,
+    onAction: () -> Unit,
     requestInitialFocus: Boolean,
     focusRequester: FocusRequester,
     upFocusRequester: FocusRequester,
@@ -237,13 +243,23 @@ private fun EmptyDashboard(
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Icon(Icons.Outlined.Lightbulb, null, Modifier.size(58.dp), HaCyan)
         Spacer(Modifier.height(16.dp))
-        HaText("Choose your quick controls", 25.sp)
+        HaText(
+            if (awaitingSavedControls) stringResource(
+                if (connectionFailed) R.string.saved_controls_unavailable else R.string.saved_controls_connecting,
+            ) else "Choose your quick controls",
+            25.sp,
+        )
         Spacer(Modifier.height(8.dp))
-        HaText("Add Home Assistant entities to your TV dashboard.", 16.sp, HaMuted)
+        HaText(
+            if (awaitingSavedControls) stringResource(R.string.saved_controls_help)
+            else "Add Home Assistant entities to your TV dashboard.",
+            16.sp,
+            HaMuted,
+        )
         Spacer(Modifier.height(20.dp))
         HaButton(
-            label = stringResource(R.string.manage_controls),
-            onClick = onManage,
+            label = stringResource(if (awaitingSavedControls) R.string.diagnostics else R.string.manage_controls),
+            onClick = onAction,
             primary = true,
             requestInitialFocus = requestInitialFocus,
             focusRequester = focusRequester,
