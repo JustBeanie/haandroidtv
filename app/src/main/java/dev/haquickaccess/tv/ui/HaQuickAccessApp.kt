@@ -123,7 +123,10 @@ fun HaQuickAccessApp(
                         TvNavigation(state, onEvent, navigationFocus, contentFocus)
                         Spacer(Modifier.height(20.dp))
                     }
-                    Box(Modifier.weight(1f).fillMaxWidth().focusRequester(contentFocus).focusRestorer().focusGroup()) {
+                    Box(Modifier.weight(1f).fillMaxWidth().focusRequester(contentFocus)
+                        // An explicit tile request must override the group's saved child.
+                        .then(if (state.focusRequest == null) Modifier.focusRestorer() else Modifier)
+                        .focusGroup()) {
                         screenState.SaveableStateProvider(state.screen.toString()) {
                             when {
                                 !state.isSettingsLoaded -> LoadingScreen()

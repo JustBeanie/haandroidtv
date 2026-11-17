@@ -251,6 +251,37 @@ class HaQuickAccessAppTest {
     }
 
     @Test
+    fun launcher_focus_request_overrides_saved_content_focus_from_navigation() {
+        val den = HaEntity("light.den", "off")
+        val reading = HaEntity("switch.reading", "off")
+        val settings = UiSettingsStore(AppSettings(
+            baseUrl = "https://ha.example",
+            tokenEnvelope = "encrypted",
+            tiles = listOf(TileConfiguration(den.entityId, 0), TileConfiguration(reading.entityId, 1)),
+            lastFocusedEntityId = den.entityId,
+        ))
+        val session = UiSession(mapOf(den.entityId to den, reading.entityId to reading))
+        val viewModel = DashboardViewModel(settings, session, UiChannelGateway(), Dispatchers.IO)
+        composeRule.setContent {
+            val state by viewModel.uiState.collectAsState()
+            HaQuickAccessApp(state, viewModel)
+        }
+
+        composeRule.onNodeWithContentDescription("den, Off").awaitFocused().performKeyInput {
+            pressKey(Key.DirectionUp)
+        }
+        composeRule.onNodeWithContentDescription("Favorites").awaitFocused()
+        composeRule.runOnIdle { viewModel.handleLaunchRequest(reading.entityId, "focus") }
+        composeRule.onNodeWithContentDescription("reading, Off").awaitFocused().performKeyInput {
+            pressKey(Key.DirectionUp)
+        }
+        composeRule.onNodeWithContentDescription("Favorites").awaitFocused()
+        composeRule.runOnIdle { viewModel.handleLaunchRequest(den.entityId, "focus") }
+        composeRule.onNodeWithContentDescription("den, Off").awaitFocused().assertIsFocused()
+        assertTrue(session.actions.isEmpty())
+    }
+
+    @Test
     fun launcher_details_deep_link_opens_the_target_panel() {
         val lamp = HaEntity("light.den", "on", JsonObject(mapOf("brightness" to JsonPrimitive(128))))
         val settings = UiSettingsStore(

@@ -34,6 +34,10 @@ Assistant ADB connection. APK hashes were verified before installation.
   Both now explicitly move focus to their next action, using the existing TV
   text-field focus mechanism. An instrumentation regression completes setup
   with D-pad navigation after entering each value.
+- A Focus shortcut received while the top navigation was focused could return
+  to the content group's saved child instead of the requested tile. Explicit
+  tile requests now bypass group restoration until the target receives focus.
+  A regression covers successive requests to different tiles from navigation.
 
 The installed follow-up is versionName 0.3.1/versionCode 4, signed with the
 existing release key. The v0.3.0 release and its assets are unchanged.
@@ -41,8 +45,8 @@ existing release key. The v0.3.0 release and its assets are unchanged.
 ## Artifact and local regression evidence
 
 The final signed validation APK has SHA-256
-`51cdbf314ae85cd4a45feb6a3719b2fec7917375d971dbe60c80085cb4b38bf7`.
-All 134 JVM tests, both 80% coverage gates, debug/release lint, and all 25
+`8cd542039149bce11620e745875f6dcd53a63a1c04651376f4f8f0d9dbb1b4a8`.
+All 134 JVM tests, both 80% coverage gates, debug/release lint, and all 26
 instrumentation tests on an API 36 Android TV emulator passed. Regression
 coverage includes a snapshot above the old limit, continued state updates,
 unsupported-entity filtering, off-state dimmers, and recovery from a failed
@@ -68,7 +72,8 @@ disable import then removed the visible channel and all three cards, cleared
 the temporary shortcuts, and retained the connection and four favorites.
 Temporary import files were automatically deleted.
 
-The final APK above adds the setup focus fix. On the physical Shield, Down
+APK `51cdbf314ae85cd4a45feb6a3719b2fec7917375d971dbe60c80085cb4b38bf7`
+adds the setup focus fix. On the physical Shield, Down
 moved from the URL field to Continue and from the token field to Edit address;
 Right reached Validate and save. A temporary local HTTPS endpoint with a
 self-signed certificate was rejected with a certificate trust error using
@@ -77,6 +82,10 @@ The original saved connection and favorites remained intact, and the app
 reconnected after leaving setup. The temporary server and certificate were
 removed. A preceding public expired-certificate endpoint timed out, so that
 attempt is not counted as a certificate-validation pass.
+
+The final APK adds the shortcut focus fix. On the physical Shield, two
+successive Focus requests from the Favorites navigation tab each selected the
+requested tile on the first attempt, without executing a household action.
 
 HTTP, credential-bearing, and fragment-bearing configuration URLs were
 rejected on the physical device without changing its saved connection.
@@ -90,21 +99,21 @@ not included in this report.
 ## Performance evidence from the final installed APK
 
 These measurements used the final signed APK identified above, including the
-setup focus fix. The device retained its four configured favorites. Cold and
+setup and shortcut focus fixes. The device retained its four configured favorites. Cold and
 warm timings each include ten samples; warm returns wait one second after
 Home before starting the measured activity. The lifecycle test includes thirty
 Home-return cycles, with checkpoints after every ten cycles.
 
 | Measurement | Result |
 | --- | --- |
-| Ten cold launches | Median 451 ms; maximum 487 ms |
-| Ten returns after Home settled | Median 97 ms; maximum 137 ms |
-| Five D-pad traversals | 424 rendered frames; 3 janky frames (0.71%) |
-| Retained `gfxinfo` frame records | 119 valid records; P95 overrun −3.25 ms; P99 −2.35 ms |
-| PSS at 0 / 10 / 20 / 30 Home-return cycles | 89,443 / 68,717 / 96,154 / 85,406 KB |
-| RSS at the same checkpoints | 201,896 / 184,860 / 212,832 / 202,584 KB |
+| Ten cold launches | Median 492.5 ms; maximum 538 ms |
+| Ten returns after Home settled | Median 97 ms; maximum 124 ms |
+| Five D-pad traversals | 340 rendered frames; 2 janky frames (0.59%) |
+| Retained `gfxinfo` frame records | 119 valid records; P95 overrun −3.08 ms; P99 −2.20 ms |
+| PSS at 0 / 10 / 20 / 30 Home-return cycles | 62,689 / 90,068 / 90,848 / 69,447 KB |
+| RSS at the same checkpoints | 173,816 / 204,320 / 205,784 / 184,964 KB |
 | Retained UI objects | One Activity, one ViewRoot, seven Views at every checkpoint |
-| Application threads | 26 at every checkpoint |
+| Application threads at the same checkpoints | 27 / 25 / 25 / 25 |
 | Application TCP connections | One foreground HTTPS connection, zero in the background, one after return |
 
 API 30 did not expose `FrameDeadline`; the repository's legacy parser estimated
