@@ -165,7 +165,7 @@ Cool navy surfaces establish the base, with bright focus and state colors carryi
 
 ## Typography
 
-**Display Font:** Android system sans-serif.  
+**Display Font:** Android system sans-serif.
 **Body Font:** Android system sans-serif.
 
 The app uses the platform's familiar TV text rendering. Sizes form a functional hierarchy; the implementation does not install a custom font or a custom weight/line-height scale.
@@ -253,4 +253,3 @@ The standard Favorites context strip names the focused entity and describes Sele
 - **Don't** treat illustrative HTML previews or synthesized tonal ramps as native runtime tokens.
 
 Implementation evidence: `HaQuickAccessApp.kt`, `TvNavigation.kt`, `TvComponents.kt`, `UiPrimitives.kt`, `DashboardScreen.kt`, `AllControlsScreen.kt`, `ConnectionSettingsScreens.kt`, and `ControlDetails.kt` under `app/src/main/java/dev/haquickaccess/tv/ui/`. PRODUCT.md remains the product authority.
-

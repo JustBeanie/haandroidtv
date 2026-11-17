@@ -116,4 +116,3 @@ data class DashboardUiState(
         entities.values.sortedBy(HaEntity::name)
     }
 }
-

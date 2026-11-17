@@ -477,4 +477,3 @@ internal fun EntityListItem(
         }
     }
 }
-

@@ -206,4 +206,3 @@ internal fun PrivacyPolicyScreen(onEvent: DashboardActions) {
         HaButton(stringResource(R.string.back), onEvent::closeScreen, requestInitialFocus = true)
     }
 }
-
