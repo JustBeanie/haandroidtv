@@ -1,16 +1,24 @@
 package dev.haquickaccess.tv.ui
 
-import android.view.KeyEvent as AndroidKeyEvent
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.tv.material3.Surface
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.Border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
@@ -31,8 +39,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -62,42 +68,28 @@ internal fun TvFocusSurface(
     var focused by remember { mutableStateOf(false) }
     val localFocusRequester = remember { FocusRequester() }
     val activeFocusRequester = focusRequester ?: localFocusRequester
-    val scale by animateFloatAsState(
-        targetValue = if (focused) focusedScale else 1f,
-        animationSpec = tween(durationMillis = 120),
-        label = "$contentDescription focus scale",
-    )
-    Box(
-        modifier
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier
             .then(if (upFocusRequester == null) Modifier else Modifier.focusProperties { up = upFocusRequester })
             .focusRequester(activeFocusRequester)
-            .onPreviewKeyEvent { event ->
-                if (
-                    upFocusRequester != null &&
-                    event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP &&
-                    event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN
-                ) {
-                    upFocusRequester.requestFocus()
-                    true
-                } else {
-                    false
-                }
-            }
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                shadowElevation = if (focused) 10.dp.toPx() else 0f
-            }
-            .heightIn(min = minimumHeight)
-            .semantics { this.contentDescription = contentDescription; role = Role.Button }
-            .background(if (focused) focusedBackground else background, shape)
             .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 2.dp else 1.dp, if (focused) focusedBorder else border, shape)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        content(focused)
-    }
+            .heightIn(min = minimumHeight)
+            .semantics { this.contentDescription = contentDescription; role = Role.Button },
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = background,
+            focusedContainerColor = focusedBackground,
+            contentColor = HaText,
+            focusedContentColor = HaText,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = focusedScale),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, border), shape = shape),
+            focusedBorder = Border(BorderStroke(2.dp, focusedBorder), shape = shape),
+        ),
+    ) { content(focused) }
     LaunchedEffect(requestInitialFocus, enabled) {
         if (requestInitialFocus && enabled) activeFocusRequester.requestFocus()
     }
@@ -114,29 +106,23 @@ internal fun TvButton(
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
 ) {
-    val background = when {
-        destructive -> HaRed.copy(alpha = .22f)
-        primary && enabled -> HaBlue
-        else -> HaSurface
-    }
-    TvFocusSurface(
-        contentDescription = label,
+    val localRequester = remember { FocusRequester() }
+    val requester = focusRequester ?: localRequester
+    Button(
         onClick = onClick,
         enabled = enabled,
-        requestInitialFocus = requestInitialFocus,
-        focusRequester = focusRequester,
-        upFocusRequester = upFocusRequester,
-        shape = RoundedCornerShape(8.dp),
-        background = background,
-        focusedBackground = if (primary && enabled) HaBlue else HaSurfaceFocused,
-        border = if (primary) HaBlue else HaBorder,
-    ) { focused ->
-        val foreground = when {
-            !enabled -> HaMuted
-            primary -> Color(0xFF082132)
-            else -> HaText
-        }
-        HaText(label, 14.sp, foreground)
+        modifier = Modifier.heightIn(min = 48.dp).focusRequester(requester)
+            .then(if (upFocusRequester == null) Modifier else Modifier.focusProperties { up = upFocusRequester }),
+        colors = ButtonDefaults.colors(
+            containerColor = when { destructive -> HaRed.copy(alpha = .2f); primary -> HaBlue; else -> HaSurface },
+            contentColor = if (primary) HaBackground else HaText,
+            focusedContainerColor = HaText,
+            focusedContentColor = HaBackground,
+        ),
+        scale = ButtonDefaults.scale(focusedScale = 1.03f),
+    ) { HaText(label, 16.sp, androidx.tv.material3.LocalContentColor.current) }
+    LaunchedEffect(requestInitialFocus, enabled) {
+        if (requestInitialFocus && enabled) requester.requestFocus()
     }
 }
 
@@ -165,7 +151,7 @@ internal fun TvListRow(
                 androidx.compose.foundation.layout.Spacer(Modifier.height(4.dp))
                 HaText(subtitle, 14.sp, HaMuted)
             }
-            HaText("›", 30.sp, if (focused) HaBlue else HaMuted)
+            androidx.tv.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = HaMuted)
         }
     }
 }
@@ -174,19 +160,16 @@ internal fun TvListRow(
 internal fun TvDialog(
     contentDescription: String,
     width: Dp = 600.dp,
+    onDismissRequest: () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = .72f)),
-        contentAlignment = Alignment.Center,
-    ) {
+    val maximumHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * .85f }
+    Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier
-                .width(width)
+            Modifier.widthIn(max = width).fillMaxWidth(.9f).heightIn(max = maximumHeight)
                 .semantics { this.contentDescription = contentDescription }
-                .background(HaSurface, RoundedCornerShape(18.dp))
-                .border(1.dp, HaBorder, RoundedCornerShape(18.dp))
-                .padding(28.dp),
+                .background(HaSurface, RoundedCornerShape(16.dp))
+                .verticalScroll(rememberScrollState()).padding(24.dp),
             content = content,
         )
     }

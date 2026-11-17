@@ -7,6 +7,9 @@ updates while the app is open.
 
 ## What it supports
 
+- Favorites-first TV navigation, a searchable All controls browser, and scrollable settings.
+- Remote Select for quick actions, hold Select for details, and predictable Back navigation.
+
 - Direct controls for lights, switches, fans, and input booleans.
 - Dimmable lights and fans with a staged 0–100% detail control.
 - Climate mode and target-temperature controls when the entity reports them.
@@ -15,6 +18,9 @@ updates while the app is open.
 - Alarm arm/disarm controls. Disarm requires a fresh Home Assistant code every
   time; the app never stores that code.
 - Optional Android TV Home channel with up to four configurable deep links.
+
+See [TV redesign validation](docs/tv-redesign-validation.md) for current automated checks,
+release artifact checks, and the remaining physical-device and Play Console gates.
 
 ## Security model
 

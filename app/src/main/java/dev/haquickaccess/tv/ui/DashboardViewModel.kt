@@ -22,7 +22,6 @@ import dev.haquickaccess.tv.domain.model.alarmArmModes
 import dev.haquickaccess.tv.domain.model.capabilities
 import dev.haquickaccess.tv.domain.model.climateMaximum
 import dev.haquickaccess.tv.domain.model.climateMinimum
-import dev.haquickaccess.tv.domain.model.climateTarget
 import dev.haquickaccess.tv.domain.model.levelPercent
 import dev.haquickaccess.tv.domain.model.numberMaximum
 import dev.haquickaccess.tv.domain.model.numberMinimum
@@ -32,6 +31,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -41,110 +41,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.sync.withLock
+import dev.haquickaccess.tv.platform.HomeChannelTransactions
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-sealed interface AppScreen {
-    data object Dashboard : AppScreen
-    data object Settings : AppScreen
-    data object ManageTiles : AppScreen
-    data object ManageShortcuts : AppScreen
-    data object ConnectionSetup : AppScreen
-    data object Diagnostics : AppScreen
-    data object Privacy : AppScreen
-}
-
-sealed interface DetailState {
-    data class Level(val entity: HaEntity, val stagedPercent: Int) : DetailState
-    data class Climate(
-        val entity: HaEntity,
-        val stagedTemperature: Double? = if (entity.capabilities().canSetClimate) {
-            entity.climateTarget() ?: entity.climateMinimum()
-        } else {
-            null
-        },
-    ) : DetailState
-    data class Cover(
-        val entity: HaEntity,
-        val stagedPosition: Int? = entity.levelPercent(),
-        val pendingCommand: ControlAction.CoverCommand.Command? = null,
-        val pendingPosition: Int? = null,
-    ) : DetailState
-    data class Alarm(val entity: HaEntity, val disarmCode: String = "", val armMode: String? = null) : DetailState
-    data class Number(
-        val entity: HaEntity,
-        val stagedValue: Double = entity.state.toDoubleOrNull()?.coerceIn(entity.numberMinimum(), entity.numberMaximum())
-            ?: entity.numberMinimum(),
-    ) : DetailState
-    data class Select(val entity: HaEntity, val selectedOption: String = entity.state) : DetailState
-    data class Text(val entity: HaEntity, val stagedValue: String = entity.state.takeUnless { it == "unknown" }.orEmpty()) : DetailState
-}
-
-data class FocusRequest(
-    val entityId: String,
-    val sequence: Long,
-)
-
-data class LauncherRecovery(
-    val message: String,
-    val staleEntityId: String,
-    val behavior: ShortcutBehavior,
-)
-
-data class LauncherShortcutReplacement(
-    val staleEntityId: String,
-    val behavior: ShortcutBehavior,
-)
-
-data class DashboardUiState(
-    val settings: AppSettings = AppSettings(),
-    val isSettingsLoaded: Boolean = false,
-    val isProjectivyInstalled: Boolean = false,
-    val entities: Map<String, HaEntity> = emptyMap(),
-    val areInitialStatesLoaded: Boolean = false,
-    val screen: AppScreen = AppScreen.Dashboard,
-    val details: DetailState? = null,
-    val commandFeedback: Map<String, CommandFeedback> = emptyMap(),
-    val errorMessage: String? = null,
-    val setupBaseUrl: String = "",
-    val setupToken: String = "",
-    val setupErrorMessage: String? = null,
-    val isForeground: Boolean = false,
-    val isSavingConnection: Boolean = false,
-    val connectionStatus: ConnectionStatus = ConnectionStatus.Disconnected,
-    val focusRequest: FocusRequest? = null,
-    val launcherRecovery: LauncherRecovery? = null,
-    val launcherShortcutReplacement: LauncherShortcutReplacement? = null,
-    val tileSnapshot: TileSnapshot? = null,
-) {
-    val isConfigured: Boolean get() = settings.baseUrl != null && settings.tokenEnvelope != null
-    val pendingEntityIds: Set<String> get() = commandFeedback.filterValues { it is CommandFeedback.Pending }.keys
-    val tiles: List<HaEntity> by lazy(LazyThreadSafetyMode.NONE) {
-        settings.tiles.sortedBy(TileConfiguration::position).mapNotNull { entities[it.entityId] }
-    }
-    val dashboardTiles: List<DashboardTileUiModel> by lazy(LazyThreadSafetyMode.NONE) {
-        val orderedConfigurations = settings.tiles.sortedBy(TileConfiguration::position)
-        val liveTiles = orderedConfigurations.mapNotNull { configuration ->
-            entities[configuration.entityId]?.toDashboardTileUiModel()
-        }
-        if (areInitialStatesLoaded) {
-            liveTiles
-        } else {
-            val liveTilesById = liveTiles.associateBy { it.entityId }
-            val cachedTiles = tileSnapshot?.tiles.orEmpty().associateBy { it.entityId }
-            orderedConfigurations.mapNotNull { configuration ->
-                liveTilesById[configuration.entityId]
-                    ?: cachedTiles[configuration.entityId]?.toDashboardTileUiModel()
-            }
-        }
-    }
-    val isShowingCachedSnapshot: Boolean get() = dashboardTiles.any { !it.live }
-    val availableEntities: List<HaEntity> by lazy(LazyThreadSafetyMode.NONE) {
-        entities.values.sortedBy(HaEntity::name)
-    }
-}
 
 private data class DashboardConnectionState(
     val settings: AppSettings,
@@ -186,7 +90,7 @@ class DashboardViewModel @Inject constructor(
     private val homeChannelPublisher: HomeChannelGateway,
     private val tileSnapshotStore: TileSnapshotStore,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
-) : ViewModel() {
+) : ViewModel(), DashboardActions {
     constructor(
         settingsRepository: SettingsStore,
         homeAssistantRepository: HomeAssistantSession,
@@ -219,7 +123,9 @@ class DashboardViewModel @Inject constructor(
     private var latestSettings = AppSettings()
     private var latestEntities: Map<String, HaEntity> = emptyMap()
     private var activeSession: Pair<String, String>? = null
+    private val commandJobs = mutableSetOf<Job>()
     private var connectionValidationJob: Job? = null
+    private var validationGeneration = 0L
     private var focusSaveJob: Job? = null
     private var snapshotSaveJob: Job? = null
     private var pendingFocusEntityId: String? = null
@@ -235,8 +141,8 @@ class DashboardViewModel @Inject constructor(
         homeAssistantRepository.status,
         tileSnapshotStore.snapshot,
     ) { currentSettings, entities, initialStatesLoaded, status, snapshot ->
-        latestSettings = currentSettings
-        latestEntities = entities
+        latestSettings = benchmarkOverride.value?.settings ?: currentSettings
+        latestEntities = benchmarkOverride.value?.entities ?: entities
         DashboardConnectionState(
             settings = currentSettings,
             settingsLoaded = true,
@@ -276,8 +182,16 @@ class DashboardViewModel @Inject constructor(
         DashboardSetupState(baseUrl, token, setupErrorMessage, isForeground, isSaving)
     }
 
+    private val displayedConnectionState = combine(connectionState, benchmarkOverride) { connection, fixture ->
+        if (fixture == null) connection else {
+            latestSettings = fixture.settings
+            latestEntities = fixture.entities
+            DashboardConnectionState(fixture.settings, true, fixture.entities, true, fixture.connectionStatus, null)
+        }
+    }
+
     private val liveUiState: StateFlow<DashboardUiState> = combine(
-        connectionState,
+        displayedConnectionState,
         interactionState,
         setupState,
     ) { connection, interaction, setup ->
@@ -304,17 +218,16 @@ class DashboardViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 
-    val uiState: StateFlow<DashboardUiState> = combine(liveUiState, benchmarkOverride) { live, benchmark ->
-        benchmark ?: live
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
+    val uiState: StateFlow<DashboardUiState> = liveUiState
 
     init {
         viewModelScope.launch {
-            combine(settingsRepository.settings, foreground) { configuredSettings, isForeground ->
-                configuredSettings to isForeground
-            }.collect { (configuredSettings, isForeground) ->
+            combine(settingsRepository.settings, foreground, savingConnection) { configuredSettings, isForeground, isSaving ->
+                Triple(configuredSettings, isForeground, isSaving)
+            }.collectLatest { (configuredSettings, isForeground, isSaving) ->
+                if (benchmarkOverride.value != null) return@collectLatest
                 latestSettings = configuredSettings
-                synchronizeForegroundSession(configuredSettings, isForeground)
+                if (!isSaving) synchronizeForegroundSession(configuredSettings, isForeground)
             }
         }
         viewModelScope.launch {
@@ -343,23 +256,28 @@ class DashboardViewModel @Inject constructor(
                 homeAssistantRepository.initialStatesLoaded,
             ) { currentSettings, currentEntities, initialStatesLoaded ->
                 if (!initialStatesLoaded || currentSettings.baseUrl == null || currentSettings.tokenEnvelope == null) {
-                    return@combine emptyList()
+                    return@combine null
                 }
-                currentSettings.tiles
+                currentSettings.connectionIdentity to currentSettings.tiles
                     .sortedBy(TileConfiguration::position)
                     .mapNotNull { currentEntities[it.entityId] }
                     .map { it.toDashboardTileUiModel().toSnapshotEntry() }
-            }.collect { entries ->
+            }.distinctUntilChanged().collect { projection ->
                 snapshotSaveJob?.cancel()
+                val (identity, entries) = projection ?: return@collect
                 if (entries.isEmpty()) return@collect
                 snapshotSaveJob = viewModelScope.launch(ioDispatcher) {
                     delay(SNAPSHOT_SAVE_DEBOUNCE_MS)
-                    tileSnapshotStore.save(
-                        TileSnapshot(
-                            capturedAtEpochMillis = System.currentTimeMillis(),
-                            tiles = entries,
-                        ),
-                    )
+                    HomeChannelTransactions.mutex.withLock {
+                        if (settingsRepository.settings.first().connectionIdentity != identity) return@withLock
+                        tileSnapshotStore.save(
+                            TileSnapshot(
+                                capturedAtEpochMillis = System.currentTimeMillis(),
+                                tiles = entries,
+                                connectionIdentity = identity,
+                            ),
+                        )
+                    }
                 }
             }
         }
@@ -390,12 +308,16 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun onForeground() {
+    override fun onForeground() {
         foreground.value = true
     }
 
-    fun onBackground() {
+    override fun onBackground() {
+        activeSession = null
         foreground.value = false
+        cancelCommands()
+        homeAssistantRepository.stop()
+        validationGeneration += 1
         connectionValidationJob?.cancel()
         connectionValidationJob = null
         savingConnection.value = false
@@ -404,29 +326,30 @@ class DashboardViewModel @Inject constructor(
         flushPendingFocus()
     }
 
-    fun updateSetupBaseUrl(value: String) {
+    override fun updateSetupBaseUrl(value: String) {
         setupBaseUrl.value = value
         setupError.value = null
     }
 
-    fun updateSetupToken(value: String) {
+    override fun updateSetupToken(value: String) {
         setupToken.value = value
         setupError.value = null
     }
 
-    fun saveConnection() {
-        connectionValidationJob?.cancel()
+    override fun saveConnection() {
+        val generation = ++validationGeneration
+        val previousJob = connectionValidationJob
+        previousJob?.cancel()
         connectionValidationJob = viewModelScope.launch {
+            previousJob?.join()
             val normalizedUrl = UrlValidator.normalize(setupBaseUrl.value)
             val token = setupToken.value.trim()
             if (normalizedUrl.isFailure || token.isBlank()) {
+                savingConnection.value = false
                 setupError.value = normalizedUrl.exceptionOrNull()?.message ?: "Enter a Home Assistant token"
                 return@launch
             }
             val validatedUrl = normalizedUrl.getOrThrow()
-            val previousSettings = latestSettings
-            activeSession = null
-            homeAssistantRepository.stop()
             savingConnection.value = true
             try {
                 val validation = try {
@@ -438,109 +361,140 @@ class DashboardViewModel @Inject constructor(
                 }
                 if (validation.isFailure) {
                     setupError.value = validation.exceptionOrNull()?.message ?: "Could not connect to Home Assistant"
-                    synchronizeForegroundSession(previousSettings, foreground.value)
                     return@launch
                 }
-                tileSnapshotStore.clear()
-                settingsRepository.saveConnection(validatedUrl, token)
+                cancelCommands()
+                snapshotSaveJob?.cancel()
+                snapshotSaveJob?.join()
+                HomeChannelTransactions.mutex.withLock {
+                    // Stop the old feed before publishing new credentials or caching its entities.
+                    activeSession = null
+                    homeAssistantRepository.stop()
+                    tileSnapshotStore.clear()
+                    settingsRepository.saveConnection(validatedUrl, token)
+                }
                 setupToken.value = ""
                 setupError.value = null
                 error.value = null
                 screen.value = AppScreen.Dashboard
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                setupError.value = "Could not save the connection. Please try again."
             } finally {
-                savingConnection.value = false
+                if (validationGeneration == generation) savingConnection.value = false
             }
         }
     }
 
-    fun clearConnection() = viewModelScope.launch {
-        connectionValidationJob?.cancel()
-        connectionValidationJob = null
-        focusSaveJob?.cancel()
-        focusSaveJob = null
-        pendingFocusEntityId = null
-        homeAssistantRepository.stop()
-        activeSession = null
-        latestSettings.channelId?.let { removeHomeChannel(it) }
-        tileSnapshotStore.clear()
-        settingsRepository.clearConnection()
-        details.value = null
-        screen.value = AppScreen.Dashboard
+    override fun clearConnection() = viewModelScope.launch {
+        validationGeneration += 1
+        savingConnection.value = true
+        try {
+            cancelCommands()
+            snapshotSaveJob?.cancel()
+            snapshotSaveJob?.join()
+            connectionValidationJob?.cancel()
+            connectionValidationJob?.join()
+            connectionValidationJob = null
+            focusSaveJob?.cancel()
+            focusSaveJob = null
+            pendingFocusEntityId = null
+            activeSession = null
+            homeAssistantRepository.stop()
+            HomeChannelTransactions.mutex.withLock {
+                settingsRepository.settings.first().channelId?.let { removeHomeChannel(it) }
+                tileSnapshotStore.clear()
+                settingsRepository.clearConnection()
+            }
+            setupToken.value = ""
+            pendingLaunchRequest.value = null
+            details.value = null
+            screen.value = AppScreen.Dashboard
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (_: Exception) {
+            error.value = "Could not forget the connection. Please try again."
+        } finally {
+            savingConnection.value = false
+        }
     }
 
-    fun openSettings() { screen.value = AppScreen.Settings }
-    fun openTileManager() { screen.value = AppScreen.ManageTiles }
-    fun openShortcutManager() { screen.value = AppScreen.ManageShortcuts }
-    fun openConnectionSetup() {
+    override fun openAllControls() { screen.value = AppScreen.AllControls }
+    override fun openFavorites() { screen.value = AppScreen.Dashboard; restoreDashboardFocus() }
+    override fun openSettings() { screen.value = AppScreen.Settings }
+    override fun openTileManager() { screen.value = AppScreen.ManageTiles }
+    override fun openShortcutManager() { screen.value = AppScreen.ManageShortcuts }
+    override fun openConnectionSetup() {
         setupBaseUrl.value = latestSettings.baseUrl.orEmpty()
         setupToken.value = ""
         setupError.value = null
         screen.value = AppScreen.ConnectionSetup
     }
-    fun openDiagnostics() { screen.value = AppScreen.Diagnostics }
-    fun openPrivacyPolicy() { screen.value = AppScreen.Privacy }
-    fun closeScreen() {
-        screen.value = AppScreen.Dashboard
+    override fun openDiagnostics() { screen.value = AppScreen.Diagnostics }
+    override fun openPrivacyPolicy() { screen.value = AppScreen.Privacy }
+    override fun closeScreen() {
+        screen.value = when (screen.value) {
+            AppScreen.ConnectionSetup, AppScreen.Diagnostics, AppScreen.Privacy, AppScreen.ManageShortcuts, AppScreen.ManageTiles -> AppScreen.Settings
+            else -> AppScreen.Dashboard
+        }
         launcherShortcutReplacement.value = null
-        restoreDashboardFocus()
+        if (screen.value == AppScreen.Dashboard) restoreDashboardFocus()
     }
-    fun dismissError() { error.value = null }
+    override fun dismissError() { error.value = null }
 
-    fun addTile(entity: HaEntity) = viewModelScope.launch {
+    override fun addTile(entity: HaEntity) = viewModelScope.launch {
         val replacement = launcherShortcutReplacement.value
-        val isAlreadyConfigured = latestSettings.tiles.any { it.entityId == entity.entityId }
-        val tiles = if (isAlreadyConfigured) {
-            latestSettings.tiles
-        } else {
-            latestSettings.tiles + TileConfiguration(entity.entityId, latestSettings.tiles.size)
-        }
-        if (replacement == null) {
-            if (isAlreadyConfigured) return@launch
-            settingsRepository.saveTiles(tiles)
-            return@launch
-        }
-
-        val remainingShortcuts = latestSettings.homeShortcuts.filterNot {
-            it.entityId == replacement.staleEntityId || it.entityId == entity.entityId
-        }
-        if (remainingShortcuts.size >= 4) {
-            error.value = "Home screen already has four shortcuts. Remove one to continue."
-            return@launch
-        }
-        val behavior = replacement.behavior.takeIf { it != ShortcutBehavior.DETAILS || supportsDetails(entity) }
-            ?: ShortcutBehavior.FOCUS
-        settingsRepository.saveTiles(tiles)
-        val shortcuts = remainingShortcuts + ShortcutConfiguration(entity.entityId, behavior)
-        settingsRepository.saveShortcuts(shortcuts)
-        publishShortcutsIfEnabled(shortcuts)
-        launcherShortcutReplacement.value = null
-        focusEntity(entity.entityId)
-    }
-
-    fun removeTile(entityId: String) = viewModelScope.launch {
-        val tiles = latestSettings.tiles
-            .filterNot { it.entityId == entityId }
-            .mapIndexed { index, tile -> tile.copy(position = index) }
-        val shortcuts = latestSettings.homeShortcuts.filterNot { it.entityId == entityId }
-        settingsRepository.saveTiles(tiles)
-        if (shortcuts.size != latestSettings.homeShortcuts.size) {
-            settingsRepository.saveShortcuts(shortcuts)
-            publishShortcutsIfEnabled(shortcuts)
+        try {
+            val updated = settingsRepository.updateControls { current ->
+                val tiles = if (current.tiles.any { it.entityId == entity.entityId }) current.tiles
+                    else current.tiles + TileConfiguration(entity.entityId, current.tiles.size)
+                if (replacement == null) current.copy(tiles = tiles) else {
+                    val remaining = current.homeShortcuts.filterNot {
+                        it.entityId == replacement.staleEntityId || it.entityId == entity.entityId
+                    }
+                    require(remaining.size < MAX_HOME_SHORTCUTS) { "Home screen already has four shortcuts. Remove one to continue." }
+                    val behavior = replacement.behavior.takeIf { it != ShortcutBehavior.DETAILS || supportsDetails(entity) }
+                        ?: ShortcutBehavior.FOCUS
+                    current.copy(tiles = tiles, homeShortcuts = remaining + ShortcutConfiguration(entity.entityId, behavior))
+                }
+            }
+            if (replacement != null) {
+                publishShortcutsIfEnabled(updated.homeShortcuts)
+                launcherShortcutReplacement.value = null
+                focusEntity(entity.entityId)
+            }
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            error.value = exception.message ?: "Could not update favorites"
         }
     }
 
-    fun moveTile(entityId: String, direction: Int) = viewModelScope.launch {
-        val tiles = latestSettings.tiles.sortedBy(TileConfiguration::position).toMutableList()
-        val from = tiles.indexOfFirst { it.entityId == entityId }
-        val to = (from + direction).coerceIn(0, tiles.lastIndex)
-        if (from >= 0 && from != to) {
-            val tile = tiles.removeAt(from)
-            tiles.add(to, tile)
-            settingsRepository.saveTiles(tiles.mapIndexed { index, config -> config.copy(position = index) })
+    override fun removeTile(entityId: String) = viewModelScope.launch {
+        val updated = settingsRepository.updateControls { current ->
+            current.copy(
+                tiles = current.tiles.filterNot { it.entityId == entityId }
+                    .mapIndexed { index, tile -> tile.copy(position = index) },
+                homeShortcuts = current.homeShortcuts.filterNot { it.entityId == entityId },
+            )
+        }
+        publishShortcutsIfEnabled(updated.homeShortcuts)
+    }
+
+    override fun moveTile(entityId: String, direction: Int) = viewModelScope.launch {
+        settingsRepository.updateControls { current ->
+            val tiles = current.tiles.sortedBy(TileConfiguration::position).toMutableList()
+            val from = tiles.indexOfFirst { it.entityId == entityId }
+            if (from < 0) return@updateControls current
+            val to = (from + direction.coerceIn(-1, 1)).coerceIn(0, tiles.lastIndex)
+            if (from != to) tiles.add(to, tiles.removeAt(from))
+            current.copy(tiles = tiles.mapIndexed { index, tile -> tile.copy(position = index) })
         }
     }
 
-    fun saveFocus(entityId: String) {
+    override fun saveFocus(entityId: String) {
+        if (benchmarkOverride.value != null) return
         if (entityId == pendingFocusEntityId) return
         if (focusSaveJob == null && entityId == latestSettings.lastFocusedEntityId) return
         pendingFocusEntityId = entityId
@@ -551,14 +505,14 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun enableBenchmarkFixture() {
+    override fun enableBenchmarkFixture() {
         if (BuildConfig.BENCHMARK_MODE) benchmarkOverride.value = BenchmarkFixture.dashboardState()
     }
 
-    fun handleLaunchRequest(
+    override fun handleLaunchRequest(
         entityId: String?,
         behavior: String?,
-        benchmarkFixtureRequested: Boolean = false,
+        benchmarkFixtureRequested: Boolean,
     ) {
         if (benchmarkFixtureRequested) enableBenchmarkFixture()
         val targetEntityId = entityId?.takeIf(String::isNotBlank) ?: return
@@ -570,7 +524,7 @@ class DashboardViewModel @Inject constructor(
         )
     }
 
-    fun focusEntity(entityId: String) {
+    override fun focusEntity(entityId: String) {
         screen.value = AppScreen.Dashboard
         details.value = null
         launcherRecovery.value = null
@@ -579,11 +533,11 @@ class DashboardViewModel @Inject constructor(
         saveFocus(entityId)
     }
 
-    fun acknowledgeFocusRequest(sequence: Long) {
+    override fun acknowledgeFocusRequest(sequence: Long) {
         if (focusRequest.value?.sequence == sequence) focusRequest.value = null
     }
 
-    fun showMissingLauncherShortcut(entityId: String = "", behavior: String? = null) {
+    override fun showMissingLauncherShortcut(entityId: String, behavior: String?) {
         screen.value = AppScreen.Dashboard
         details.value = null
         focusRequest.value = null
@@ -600,13 +554,13 @@ class DashboardViewModel @Inject constructor(
         )
     }
 
-    fun dismissLauncherRecovery() {
+    override fun dismissLauncherRecovery() {
         launcherRecovery.value = null
         launcherShortcutReplacement.value = null
         restoreDashboardFocus()
     }
 
-    fun openLauncherRecoveryControls() {
+    override fun openLauncherRecoveryControls() {
         launcherRecovery.value?.takeIf { it.staleEntityId.isNotBlank() }?.let { recovery ->
             launcherShortcutReplacement.value = LauncherShortcutReplacement(
                 staleEntityId = recovery.staleEntityId,
@@ -617,7 +571,7 @@ class DashboardViewModel @Inject constructor(
         openTileManager()
     }
 
-    fun performPrimaryAction(entity: HaEntity) {
+    override fun performPrimaryAction(entity: HaEntity) {
         when {
             entity.capabilities().canToggle -> toggle(entity)
             entity.capabilities().canActivate -> execute(ControlAction.ActivateScene(entity))
@@ -627,7 +581,7 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun performPrimaryAction(entityId: String) {
+    override fun performPrimaryAction(entityId: String) {
         val entity = latestEntities[entityId]
         if (entity == null) {
             commandFeedback.value += entityId to CommandFeedback.Failed("Waiting for live Home Assistant state")
@@ -636,9 +590,9 @@ class DashboardViewModel @Inject constructor(
         performPrimaryAction(entity)
     }
 
-    fun toggle(entity: HaEntity) = execute(ControlAction.Toggle(entity))
+    override fun toggle(entity: HaEntity) = execute(ControlAction.Toggle(entity))
 
-    fun supportsDetails(entity: HaEntity): Boolean =
+    override fun supportsDetails(entity: HaEntity): Boolean =
         entity.capabilities().canSetLevel ||
             entity.domain == "climate" ||
             entity.domain == "cover" ||
@@ -647,7 +601,7 @@ class DashboardViewModel @Inject constructor(
             entity.capabilities().canSelectOption ||
             entity.capabilities().canSetText
 
-    fun openDetails(entity: HaEntity) {
+    override fun openDetails(entity: HaEntity) {
         details.value = when {
             entity.capabilities().canSetLevel -> DetailState.Level(entity, entity.levelPercent() ?: 50)
             entity.domain == "climate" -> DetailState.Climate(entity)
@@ -660,7 +614,7 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun openDetails(entityId: String) {
+    override fun openDetails(entityId: String) {
         val entity = latestEntities[entityId]
         if (entity == null) {
             commandFeedback.value += entityId to CommandFeedback.Failed("Details are available after Home Assistant reconnects")
@@ -669,13 +623,13 @@ class DashboardViewModel @Inject constructor(
         openDetails(entity)
     }
 
-    fun dismissCommandFailure(entityId: String) {
+    override fun dismissCommandFailure(entityId: String) {
         if (commandFeedback.value[entityId] is CommandFeedback.Failed) {
             commandFeedback.value -= entityId
         }
     }
 
-    fun openShortcutDetails(entity: HaEntity) {
+    override fun openShortcutDetails(entity: HaEntity) {
         screen.value = AppScreen.Dashboard
         details.value = null
         focusRequest.value = null
@@ -684,27 +638,27 @@ class DashboardViewModel @Inject constructor(
         if (details.value == null) focusEntity(entity.entityId)
     }
 
-    fun closeDetails() {
+    override fun closeDetails() {
         val entityId = details.value?.entityId()
         details.value = null
-        entityId?.let(::focusEntity)
+        if (screen.value == AppScreen.Dashboard) entityId?.let(::focusEntity)
     }
 
-    fun stageLevel(percent: Int) {
+    override fun stageLevel(percent: Int) {
         details.value = (details.value as? DetailState.Level)?.copy(stagedPercent = percent.coerceIn(0, 100))
     }
 
-    fun applyLevel() {
+    override fun applyLevel() {
         val detail = details.value as? DetailState.Level ?: return
         execute(ControlAction.SetLevel(detail.entity, detail.stagedPercent))
         closeDetails()
     }
 
-    fun setClimateMode(entity: HaEntity, mode: String) {
+    override fun setClimateMode(entity: HaEntity, mode: String) {
         execute(ControlAction.SetClimateMode(entity, mode))
     }
 
-    fun stageClimateTemperature(value: Double) {
+    override fun stageClimateTemperature(value: Double) {
         details.value = (details.value as? DetailState.Climate)?.let { detail ->
             detail.copy(
                 stagedTemperature = value.coerceIn(
@@ -715,12 +669,12 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun applyClimateTemperature() {
+    override fun applyClimateTemperature() {
         val detail = details.value as? DetailState.Climate ?: return
         detail.stagedTemperature?.let { execute(ControlAction.SetClimateTemperature(detail.entity, it)) }
     }
 
-    fun coverCommand(command: ControlAction.CoverCommand.Command, position: Int? = null) {
+    override fun coverCommand(command: ControlAction.CoverCommand.Command, position: Int?) {
         val detail = details.value as? DetailState.Cover ?: return
         val opensSecureCover = command == ControlAction.CoverCommand.Command.OPEN ||
             (command == ControlAction.CoverCommand.Command.SET_POSITION &&
@@ -733,60 +687,60 @@ class DashboardViewModel @Inject constructor(
         closeDetails()
     }
 
-    fun stageCoverPosition(position: Int) {
+    override fun stageCoverPosition(position: Int) {
         details.value = (details.value as? DetailState.Cover)?.copy(stagedPosition = position.coerceIn(0, 100))
     }
 
-    fun applyCoverPosition() {
+    override fun applyCoverPosition() {
         val detail = details.value as? DetailState.Cover ?: return
         detail.stagedPosition?.let { coverCommand(ControlAction.CoverCommand.Command.SET_POSITION, it) }
     }
 
-    fun confirmSecureCover() {
+    override fun confirmSecureCover() {
         val detail = details.value as? DetailState.Cover ?: return
         val command = detail.pendingCommand ?: return
         execute(ControlAction.CoverCommand(detail.entity, command, detail.pendingPosition))
         closeDetails()
     }
 
-    fun cancelSecureCover() {
+    override fun cancelSecureCover() {
         details.value = (details.value as? DetailState.Cover)?.copy(pendingCommand = null, pendingPosition = null)
     }
 
-    fun updateAlarmCode(code: String) {
+    override fun updateAlarmCode(code: String) {
         details.value = (details.value as? DetailState.Alarm)?.copy(disarmCode = code.take(16))
     }
 
-    fun stageNumberValue(value: Double) {
+    override fun stageNumberValue(value: Double) {
         details.value = (details.value as? DetailState.Number)?.let { detail ->
             detail.copy(stagedValue = value.coerceIn(detail.entity.numberMinimum(), detail.entity.numberMaximum()))
         }
     }
 
-    fun applyNumberValue() {
+    override fun applyNumberValue() {
         val detail = details.value as? DetailState.Number ?: return
         execute(ControlAction.SetNumberValue(detail.entity, detail.stagedValue))
         closeDetails()
     }
 
-    fun selectOption(option: String) {
+    override fun selectOption(option: String) {
         val detail = details.value as? DetailState.Select ?: return
         if (option !in detail.entity.selectOptions()) return
         execute(ControlAction.SelectOption(detail.entity, option))
         closeDetails()
     }
 
-    fun updateTextValue(value: String) {
+    override fun updateTextValue(value: String) {
         details.value = (details.value as? DetailState.Text)?.copy(stagedValue = value)
     }
 
-    fun applyTextValue() {
+    override fun applyTextValue() {
         val detail = details.value as? DetailState.Text ?: return
         execute(ControlAction.SetTextValue(detail.entity, detail.stagedValue))
         closeDetails()
     }
 
-    fun armAlarm(mode: String) {
+    override fun armAlarm(mode: String) {
         val detail = details.value as? DetailState.Alarm ?: return
         if (mode !in detail.entity.alarmArmModes()) {
             error.value = "That arm mode is not supported by this alarm"
@@ -800,7 +754,7 @@ class DashboardViewModel @Inject constructor(
         closeDetails()
     }
 
-    fun disarmAlarm() {
+    override fun disarmAlarm() {
         val detail = details.value as? DetailState.Alarm ?: return
         if (detail.disarmCode.isBlank()) {
             error.value = "Enter the Home Assistant alarm code"
@@ -810,25 +764,31 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun setShortcut(entityId: String, behavior: ShortcutBehavior) = viewModelScope.launch {
-        val existing = latestSettings.homeShortcuts.filterNot { it.entityId == entityId }
-        if (existing.size >= MAX_HOME_SHORTCUTS) {
-            error.value = "Home screen already has four shortcuts. Remove one to continue."
-            return@launch
+    override fun setShortcut(entityId: String, behavior: ShortcutBehavior) = viewModelScope.launch {
+        try {
+            val updated = settingsRepository.updateControls { current ->
+                val existing = current.homeShortcuts.filterNot { it.entityId == entityId }
+                require(existing.size < MAX_HOME_SHORTCUTS) { "Home screen already has four shortcuts. Remove one to continue." }
+                current.copy(homeShortcuts = existing + ShortcutConfiguration(entityId, behavior))
+            }
+            publishShortcutsIfEnabled(updated.homeShortcuts)
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            error.value = exception.message ?: "Could not update shortcuts"
         }
-        val shortcuts = existing + ShortcutConfiguration(entityId, behavior)
-        settingsRepository.saveShortcuts(shortcuts)
-        publishShortcutsIfEnabled(shortcuts)
     }
 
-    fun removeShortcut(entityId: String) = viewModelScope.launch {
-        val shortcuts = latestSettings.homeShortcuts.filterNot { it.entityId == entityId }
-        if (shortcuts.size == latestSettings.homeShortcuts.size) return@launch
-        settingsRepository.saveShortcuts(shortcuts)
-        publishShortcutsIfEnabled(shortcuts)
+    override fun removeShortcut(entityId: String) = viewModelScope.launch {
+        var changed = false
+        val updated = settingsRepository.updateControls { current ->
+            changed = current.homeShortcuts.any { it.entityId == entityId }
+            current.copy(homeShortcuts = current.homeShortcuts.filterNot { it.entityId == entityId })
+        }
+        if (changed) publishShortcutsIfEnabled(updated.homeShortcuts)
     }
 
-    fun enableHomeChannel() = viewModelScope.launch {
+    override fun enableHomeChannel() = viewModelScope.launch {
         if (latestSettings.homeShortcuts.isEmpty()) {
             error.value = "Choose at least one Home screen shortcut first"
             return@launch
@@ -836,18 +796,20 @@ class DashboardViewModel @Inject constructor(
         publishHomeChannel(latestSettings, requestHomeChannel = true)
     }
 
-    fun disableHomeChannel() = viewModelScope.launch {
-        val channelId = latestSettings.channelId
-        if (channelId != null && !removeHomeChannel(channelId)) return@launch
-        settingsRepository.setHomeChannel(enabled = false)
+    override fun disableHomeChannel() = viewModelScope.launch {
+        HomeChannelTransactions.mutex.withLock {
+            val channelId = settingsRepository.settings.first().channelId
+            if (channelId != null && !removeHomeChannel(channelId)) return@withLock
+            settingsRepository.setHomeChannel(enabled = false)
+        }
     }
 
-    fun refreshHomeChannel() = viewModelScope.launch {
+    override fun refreshHomeChannel() = viewModelScope.launch {
         if (!latestSettings.homeChannelEnabled) return@launch
         publishHomeChannel(latestSettings)
     }
 
-    fun refreshHomeChannelWhenReady() = viewModelScope.launch {
+    override fun refreshHomeChannelWhenReady() = viewModelScope.launch {
         val readyState = combine(
             settingsRepository.settings,
             homeAssistantRepository.initialStatesLoaded,
@@ -869,16 +831,26 @@ class DashboardViewModel @Inject constructor(
     }
 
     private suspend fun publishHomeChannel(settings: AppSettings, requestHomeChannel: Boolean = false) {
-        val channelId = try {
-            withContext(ioDispatcher) { homeChannelPublisher.createOrUpdate(settings, latestEntities) }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (_: Exception) {
-            error.value = "Could not update the Android TV Home channel"
-            return
+        HomeChannelTransactions.mutex.withLock {
+            val current = settingsRepository.settings.first()
+            if (!requestHomeChannel && !current.homeChannelEnabled) return@withLock
+            if (current.baseUrl != settings.baseUrl || current.tokenEnvelope != settings.tokenEnvelope) return@withLock
+            val entities = latestEntities
+            val channelId = try {
+                // A provider write and its saved ID must finish together even if the screen closes.
+                withContext(NonCancellable + ioDispatcher) {
+                    val id = homeChannelPublisher.createOrUpdate(current, entities)
+                    settingsRepository.setHomeChannel(enabled = true, channelId = id)
+                    id
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                error.value = "Could not update the Android TV Home channel"
+                return@withLock
+            }
+            if (requestHomeChannel) _homeChannelRequests.emit(channelId)
         }
-        settingsRepository.setHomeChannel(enabled = true, channelId = channelId)
-        if (requestHomeChannel) _homeChannelRequests.emit(channelId)
     }
 
     private suspend fun removeHomeChannel(channelId: Long): Boolean = try {
@@ -952,40 +924,53 @@ class DashboardViewModel @Inject constructor(
         is ControlAction.DisarmAlarm -> entity.entityId
     }
 
-    private fun execute(action: ControlAction) = viewModelScope.launch {
-        val id = action.entityId()
-        if (commandFeedback.value[id] is CommandFeedback.Pending) return@launch
-        commandFeedback.value += id to CommandFeedback.Pending
-        val result = homeAssistantRepository.execute(action)
-        if (result.isSuccess) {
-            nextCommandFeedbackSequence += 1
-            val success = CommandFeedback.Succeeded(nextCommandFeedbackSequence)
-            commandFeedback.value += id to success
-            delay(COMMAND_SUCCESS_VISIBLE_MS)
-            if (commandFeedback.value[id] == success) commandFeedback.value -= id
-        } else {
-            commandFeedback.value += id to CommandFeedback.Failed(
-                result.exceptionOrNull()?.message ?: "Home Assistant did not accept the command",
-            )
+    private fun execute(action: ControlAction): Job {
+        val job = viewModelScope.launch {
+            val id = action.entityId()
+            if (commandFeedback.value[id] is CommandFeedback.Pending) return@launch
+            commandFeedback.value += id to CommandFeedback.Pending
+            val result = if (benchmarkOverride.value != null) Result.success(Unit) else homeAssistantRepository.execute(action)
+            if (result.isSuccess) {
+                nextCommandFeedbackSequence += 1
+                val success = CommandFeedback.Succeeded(nextCommandFeedbackSequence)
+                commandFeedback.value += id to success
+                delay(COMMAND_SUCCESS_VISIBLE_MS)
+                if (commandFeedback.value[id] == success) commandFeedback.value -= id
+            } else {
+                commandFeedback.value += id to CommandFeedback.Failed(
+                    result.exceptionOrNull()?.message ?: "Home Assistant did not accept the command",
+                )
+            }
         }
+        commandJobs += job
+        job.invokeOnCompletion { commandJobs.remove(job) }
+        return job
     }
 
-    private fun synchronizeForegroundSession(settings: AppSettings, isForeground: Boolean) {
-        if (!isForeground) {
+    private fun cancelCommands() {
+        commandJobs.toList().forEach { it.cancel() }
+        commandJobs.clear()
+        commandFeedback.value = emptyMap()
+    }
+
+    private suspend fun synchronizeForegroundSession(settings: AppSettings, isForeground: Boolean) {
+        if (!isForeground || settings.baseUrl == null || settings.tokenEnvelope == null) {
             if (activeSession != null) {
                 homeAssistantRepository.stop()
                 activeSession = null
             }
             return
         }
-        val baseUrl = settings.baseUrl ?: run {
-            if (activeSession != null) {
-                homeAssistantRepository.stop()
-                activeSession = null
-            }
-            return
-        }
-        val token = runCatching { settingsRepository.decryptToken(settings) }.getOrElse {
+        val baseUrl = settings.baseUrl
+        if (savingConnection.value) return
+        val envelope = settings.tokenEnvelope
+        val requestedSession = baseUrl to envelope
+        if (activeSession == requestedSession) return
+        val token = try {
+            withContext(ioDispatcher) { settingsRepository.decryptToken(settings) }
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (_: Exception) {
             error.value = "Saved token can no longer be read. Connect Home Assistant again."
             if (activeSession != null) {
                 homeAssistantRepository.stop()
@@ -993,8 +978,8 @@ class DashboardViewModel @Inject constructor(
             }
             return
         } ?: return
-        val requestedSession = baseUrl to token
-        if (activeSession == requestedSession) return
+        if (!foreground.value) return
+        cancelCommands()
         activeSession?.let { homeAssistantRepository.stop() }
         activeSession = requestedSession
         homeAssistantRepository.start(baseUrl, token)

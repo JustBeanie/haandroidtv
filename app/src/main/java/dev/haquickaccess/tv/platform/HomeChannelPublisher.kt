@@ -32,24 +32,30 @@ class HomeChannelPublisher @Inject constructor(
     @SuppressLint("RestrictedApi") // PreviewProgram.Builder is the AndroidX TV Provider preview-channel API.
     override fun createOrUpdate(settings: AppSettings, entities: Map<String, HaEntity>): Long {
         val channelId = settings.channelId ?: createChannel()
-        val resolver = context.contentResolver
-        resolver.delete(TvContractCompat.buildPreviewProgramsUriForChannel(channelId), null, null)
-        settings.homeShortcuts.forEachIndexed { index, shortcut ->
-            val entity = entities[shortcut.entityId] ?: return@forEachIndexed
-            val program = PreviewProgram.Builder()
-                .setChannelId(channelId)
-                .setType(TvContractCompat.PreviewPrograms.TYPE_CLIP)
-                .setTitle(entity.name)
-                .setDescription(descriptionFor(entity, shortcut.behavior))
-                .setPosterArtUri(tileArtUri(entity))
-                .setPosterArtAspectRatio(TvContractCompat.PreviewProgramColumns.ASPECT_RATIO_16_9)
-                .setIntentUri(deepLinkUri(entity.entityId, shortcut.behavior))
-                .setInternalProviderId(entity.entityId)
-                .setWeight(index)
-                .build()
-            resolver.insert(TvContractCompat.PreviewPrograms.CONTENT_URI, program.toContentValues())
+        try {
+            val resolver = context.contentResolver
+            resolver.delete(TvContractCompat.buildPreviewProgramsUriForChannel(channelId), null, null)
+            settings.homeShortcuts.forEachIndexed { index, shortcut ->
+                val entity = entities[shortcut.entityId] ?: return@forEachIndexed
+                val program = PreviewProgram.Builder()
+                    .setChannelId(channelId)
+                    .setType(TvContractCompat.PreviewPrograms.TYPE_CLIP)
+                    .setTitle(entity.name)
+                    .setDescription(descriptionFor(entity, shortcut.behavior))
+                    .setPosterArtUri(tileArtUri(entity))
+                    .setPosterArtAspectRatio(TvContractCompat.PreviewProgramColumns.ASPECT_RATIO_16_9)
+                    .setIntentUri(deepLinkUri(entity.entityId, shortcut.behavior))
+                    .setInternalProviderId(entity.entityId)
+                    .setWeight(index)
+                    .build()
+                resolver.insert(TvContractCompat.PreviewPrograms.CONTENT_URI, program.toContentValues())
+            }
+            return channelId
+        } catch (exception: Exception) {
+            // A failed first publication must not strand a channel without a persisted ID.
+            if (settings.channelId == null) runCatching { remove(channelId) }
+            throw exception
         }
-        return channelId
     }
 
     override fun remove(channelId: Long) {
@@ -69,8 +75,13 @@ class HomeChannelPublisher @Inject constructor(
             .build()
         val uri = requireNotNull(context.contentResolver.insert(TvContractCompat.Channels.CONTENT_URI, channel.toContentValues()))
         val id = ContentUris.parseId(uri)
-        ChannelLogoUtils.storeChannelLogo(context, id, tileArtUri())
-        return id
+        try {
+            ChannelLogoUtils.storeChannelLogo(context, id, tileArtUri())
+            return id
+        } catch (exception: Exception) {
+            runCatching { remove(id) }
+            throw exception
+        }
     }
 
     private fun tileArtUri(entity: HaEntity? = null): Uri =

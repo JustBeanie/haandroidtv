@@ -33,14 +33,14 @@ class TileSnapshotCodecTest {
 
     @Test
     fun unknownVersionIsIgnored() {
-        val encoded = codec.encode(snapshot()).replace("\"version\":1", "\"version\":99")
+        val encoded = codec.encode(snapshot()).replace("\"version\":2", "\"version\":99")
 
         assertNull(codec.decode(encoded))
     }
 
     @Test
     fun unsupportedVersionCannotBeWritten() {
-        assertFailsWith<IllegalArgumentException> { codec.encode(snapshot().copy(version = 2)) }
+        assertFailsWith<IllegalArgumentException> { codec.encode(snapshot().copy(version = 99)) }
     }
 
     private fun snapshot() = TileSnapshot(

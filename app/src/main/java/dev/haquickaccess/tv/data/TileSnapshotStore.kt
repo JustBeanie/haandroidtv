@@ -34,9 +34,10 @@ data class TileSnapshot(
     val version: Int = CURRENT_VERSION,
     val capturedAtEpochMillis: Long,
     val tiles: List<TileSnapshotEntry>,
+    val connectionIdentity: String? = null,
 ) {
     companion object {
-        const val CURRENT_VERSION = 1
+        const val CURRENT_VERSION = 2
     }
 }
 

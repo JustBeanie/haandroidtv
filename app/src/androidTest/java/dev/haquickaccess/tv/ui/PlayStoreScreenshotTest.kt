@@ -1,14 +1,12 @@
 package dev.haquickaccess.tv.ui
 
 import android.graphics.Bitmap
+import android.os.SystemClock
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.haquickaccess.tv.data.AppSettings
@@ -23,6 +21,7 @@ import dev.haquickaccess.tv.platform.HomeChannelGateway
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -82,16 +81,31 @@ class PlayStoreScreenshotTest {
             composeRule.onAllNodesWithText("Living Room").fetchSemanticsNodes().isNotEmpty()
         }
         capture("02-dashboard.png")
+        composeRule.runOnIdle { viewModel.openAllControls() }
+        composeRule.onNodeWithText("Search controls").assertExists()
+        capture("03-all-controls.png")
+        composeRule.runOnIdle { viewModel.openSettings() }
+        composeRule.onNodeWithText("Manage controls").assertExists()
+        capture("04-settings.png")
+        composeRule.runOnIdle { viewModel.openDetails(entities.getValue("light.living_room")) }
+        composeRule.waitUntil(5_000) { composeRule.onAllNodesWithText("Brightness: 74%").fetchSemanticsNodes().isNotEmpty() }
+        capture("05-details.png")
     }
 
     private fun capture(fileName: String) {
         composeRule.waitForIdle()
+        // Compose idleness precedes SurfaceFlinger presentation on slow TV emulators.
+        // Let the real display settle before capturing the full window, including dialogs.
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        SystemClock.sleep(750)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(requireNotNull(context.getExternalFilesDir(null)), "play-store")
         check(directory.isDirectory || directory.mkdirs()) { "Could not create ${directory.absolutePath}" }
         val output = File(directory, fileName)
         FileOutputStream(output).use { stream ->
-            check(composeRule.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, stream))
+            val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            check(bitmap != null && bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
+            bitmap.recycle()
         }
     }
 
@@ -163,6 +177,9 @@ class PlayStoreScreenshotTest {
     private class ScreenshotSettingsStore(initial: AppSettings) : SettingsStore {
         private val values = MutableStateFlow(initial)
         override val settings: StateFlow<AppSettings> = values.asStateFlow()
+
+        override suspend fun updateControls(transform: (AppSettings) -> AppSettings): AppSettings =
+            values.updateAndGet(transform)
 
         override suspend fun saveConnection(baseUrl: String, token: String) = Unit
         override fun decryptToken(settings: AppSettings): String? = "test-token"

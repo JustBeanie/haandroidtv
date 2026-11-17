@@ -1,5 +1,8 @@
 package dev.haquickaccess.tv.ui
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Box
@@ -16,6 +19,14 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.performTouchInput
@@ -39,6 +50,7 @@ import dev.haquickaccess.tv.domain.model.TileConfiguration
 import dev.haquickaccess.tv.platform.HomeChannelGateway
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -132,7 +144,7 @@ class HaQuickAccessAppTest {
 
         composeRule.onNodeWithContentDescription("den, 50%").performTouchInput { longClick() }
 
-        composeRule.onNodeWithContentDescription("Cancel").awaitFocused().assertIsFocused()
+        composeRule.onNodeWithText("Cancel").awaitFocused().assertIsFocused()
         composeRule.onNodeWithContentDescription("den, 50%").assertIsNotFocused()
         composeRule.onNodeWithText("Brightness: 50%").awaitDisplayed().assertIsDisplayed()
         assertExactlyOneFocusedNode()
@@ -179,7 +191,7 @@ class HaQuickAccessAppTest {
         }
 
         composeRule.onNodeWithText("Ready TV controls · 1").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("All").assertIsFocused()
+        composeRule.onNodeWithText("All").assertIsFocused()
     }
 
     @Test
@@ -208,7 +220,8 @@ class HaQuickAccessAppTest {
 
         composeRule.onNodeWithContentDescription("Current dashboard order: 1. den, 2. reading").assertIsDisplayed()
         composeRule.onNodeWithText("Tile 1 of 2").assertIsDisplayed()
-        composeRule.onAllNodesWithText("Earlier")[0].assertIsNotEnabled()
+        composeRule.onAllNodesWithText("Move")[0].performSemanticsAction(SemanticsActions.OnClick) { it() }
+        composeRule.onNodeWithText("Earlier").assertIsNotEnabled()
     }
 
     @Test
@@ -226,7 +239,7 @@ class HaQuickAccessAppTest {
         }
 
         composeRule.onNodeWithText("Brightness: 50%").awaitDisplayed().assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Cancel").awaitFocused().assertIsFocused()
+        composeRule.onNodeWithText("Cancel").awaitFocused().assertIsFocused()
         assertExactlyOneFocusedNode()
     }
 
@@ -258,6 +271,7 @@ class HaQuickAccessAppTest {
         val snapshots = UiSnapshotStore(
             TileSnapshot(
                 capturedAtEpochMillis = 1234L,
+                connectionIdentity = settings.settings.value.connectionIdentity,
                 tiles = listOf(TileSnapshotEntry("light.den", "den", "LIGHT", "Off", false, false)),
             ),
         )
@@ -367,7 +381,8 @@ class HaQuickAccessAppTest {
 
     @Test
     fun dashboard_fits_two_complete_tile_rows_in_a_1080p_viewport() {
-        val density = composeRule.density.density
+        // TV logical viewports must not shrink when the host emulator is 4K.
+        val density = 2f
         val widthDp = 1920f / density
         val heightDp = 1080f / density
         val fixture = BenchmarkFixture.dashboardState(tileCount = 6)
@@ -387,7 +402,7 @@ class HaQuickAccessAppTest {
 
         val firstTile = composeRule.onNodeWithTag("tile_light.benchmark_1").getUnclippedBoundsInRoot()
         val secondTile = composeRule.onNodeWithTag("tile_fan.benchmark_2").getUnclippedBoundsInRoot()
-        val fourthTile = composeRule.onNodeWithTag("tile_input_boolean.benchmark_4").getUnclippedBoundsInRoot()
+        val nextRowTile = composeRule.onNodeWithTag("tile_switch.benchmark_5").getUnclippedBoundsInRoot()
         val secondRowBottom = composeRule.onNodeWithTag("tile_light.benchmark_6")
             .assertIsDisplayed()
             .getUnclippedBoundsInRoot()
@@ -396,13 +411,14 @@ class HaQuickAccessAppTest {
         assertEquals("Test viewport must retain its requested height", heightDp, (viewport.bottom - viewport.top).value, 0.5f)
         assertTrue("Second dashboard row bottom $secondRowBottom must fit within $viewport", secondRowBottom <= viewport.bottom.value)
         assertTrue("Focused cards must not overlap horizontally", firstTile.right < secondTile.left)
-        assertTrue("Focused cards must not overlap vertically", firstTile.bottom < fourthTile.top)
+        assertTrue("Focused cards must not overlap vertically", firstTile.bottom < nextRowTile.top)
         assertExactlyOneFocusedNode()
     }
 
     @Test
     fun dashboard_primary_controls_fit_in_a_720p_viewport() {
-        val density = composeRule.density.density
+        // TV logical viewports must not shrink when the host emulator is 4K.
+        val density = 2f
         val widthDp = 1280f / density
         val heightDp = 720f / density
         val fixture = BenchmarkFixture.dashboardState(tileCount = 3)
@@ -414,13 +430,16 @@ class HaQuickAccessAppTest {
         )
 
         composeRule.setContent {
-            Box(Modifier.size(widthDp.dp, heightDp.dp)) {
-                val state by viewModel.uiState.collectAsState()
-                HaQuickAccessApp(state, viewModel)
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.3f)) {
+                Box(Modifier.size(widthDp.dp, heightDp.dp)) {
+                    val state by viewModel.uiState.collectAsState()
+                    HaQuickAccessApp(state, viewModel)
+                }
             }
         }
 
         composeRule.onNodeWithContentDescription("Settings").assertIsDisplayed()
+        composeRule.onNodeWithText("Select to toggle · Hold Select for details").assertIsDisplayed()
         val firstRowBottom = composeRule.onNodeWithTag("tile_scene.benchmark_3")
             .assertIsDisplayed()
             .getUnclippedBoundsInRoot()
@@ -429,6 +448,47 @@ class HaQuickAccessAppTest {
         assertEquals("Test viewport must retain its requested height", heightDp, (viewport.bottom - viewport.top).value, 0.5f)
         assertTrue("First dashboard row bottom $firstRowBottom must fit within $viewport", firstRowBottom <= viewport.bottom.value)
         assertExactlyOneFocusedNode()
+    }
+
+    @Test
+    fun all_controls_can_be_opened_by_remote_and_pinned_without_executing() {
+        val fixture = BenchmarkFixture.dashboardState(tileCount = 3)
+        val settings = UiSettingsStore(fixture.settings)
+        val session = UiSession(fixture.entities)
+        val viewModel = DashboardViewModel(settings, session, UiChannelGateway(), Dispatchers.IO)
+        composeRule.setContent {
+            val state by viewModel.uiState.collectAsState()
+            HaQuickAccessApp(state, viewModel)
+        }
+        composeRule.onNodeWithTag("tile_light.benchmark_1").awaitFocused().performKeyInput {
+            pressKey(Key.DirectionUp)
+            pressKey(Key.DirectionRight)
+            pressKey(Key.DirectionCenter)
+        }
+        composeRule.onNodeWithContentDescription("Search controls").awaitDisplayed().performTextInput("Benchmark control 2")
+        composeRule.onNodeWithContentDescription("Benchmark control 2").performSemanticsAction(SemanticsActions.OnClick) { it() }
+        composeRule.onNodeWithText("Remove from favorites").awaitFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        composeRule.waitUntil(5_000) { settings.settings.value.tiles.size == 2 }
+        assertTrue(session.actions.isEmpty())
+        pressBack()
+        composeRule.onNodeWithContentDescription("Search controls").assertIsDisplayed()
+        pressBack()
+        composeRule.onNodeWithTag("dashboard_grid").awaitDisplayed().assertIsDisplayed()
+    }
+
+    @Test
+    fun forget_confirmation_defaults_to_cancel_and_preserves_connection() {
+        val settings = UiSettingsStore(AppSettings(baseUrl = "https://ha.example", tokenEnvelope = "encrypted"))
+        val viewModel = DashboardViewModel(settings, UiSession(emptyMap()), UiChannelGateway(), Dispatchers.IO)
+        viewModel.openSettings()
+        composeRule.setContent {
+            val state by viewModel.uiState.collectAsState()
+            HaQuickAccessApp(state, viewModel)
+        }
+        composeRule.onNodeWithText("Forget Home Assistant").performScrollTo().performSemanticsAction(SemanticsActions.OnClick) { it() }
+        composeRule.onNodeWithText("Cancel").awaitFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        assertEquals("https://ha.example", settings.settings.value.baseUrl)
+        composeRule.onNodeWithContentDescription("Connection").performScrollTo().assertIsDisplayed()
     }
 
     // ViewModel work runs outside Compose's idling resources. Wait for the
@@ -442,13 +502,20 @@ class HaQuickAccessAppTest {
     }
 
     private fun assertExactlyOneFocusedNode() {
-        val focusedNodes = composeRule.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes()
+        // Android retains focus per window. Only the dialog window can receive input while open.
+        val dialogOpen = composeRule.onAllNodes(isDialog()).fetchSemanticsNodes().isNotEmpty()
+        val matcher = if (dialogOpen) isFocused() and hasClickAction() and hasAnyAncestor(isDialog())
+            else isFocused() and hasClickAction()
+        val focusedNodes = composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes()
         assertEquals("Exactly one visible control should own focus", 1, focusedNodes.size)
     }
 
     private class UiSettingsStore(initial: AppSettings) : SettingsStore {
         private val values = MutableStateFlow(initial)
         override val settings: StateFlow<AppSettings> = values.asStateFlow()
+
+        override suspend fun updateControls(transform: (AppSettings) -> AppSettings): AppSettings =
+            values.updateAndGet(transform)
 
         override suspend fun saveConnection(baseUrl: String, token: String) {
             values.value = values.value.copy(baseUrl = baseUrl, tokenEnvelope = "encrypted")

@@ -12,9 +12,11 @@ $sourceDirectory = Join-Path $OutputDirectory 'source'
 New-Item -ItemType Directory -Path $sourceDirectory -Force | Out-Null
 
 $featureSourceCopy = Join-Path $sourceDirectory 'feature-graphic-generated.png'
-$featureOutput = Join-Path $OutputDirectory 'feature-graphic-1280x720.png'
+$featureOutput = Join-Path $OutputDirectory 'feature-graphic-1024x500.png'
 $iconOutput = Join-Path $OutputDirectory 'app-icon-512x512.png'
-Copy-Item -LiteralPath $FeatureSource -Destination $featureSourceCopy -Force
+if ([IO.Path]::GetFullPath($FeatureSource) -ne [IO.Path]::GetFullPath($featureSourceCopy)) {
+    Copy-Item -LiteralPath $FeatureSource -Destination $featureSourceCopy -Force
+}
 
 function New-Canvas([int]$Width, [int]$Height) {
     New-Object System.Drawing.Bitmap(
@@ -61,10 +63,10 @@ try {
     $icon.Dispose()
 }
 
-# Center-crop the generated artwork to exactly 16:9, then use high-quality
-# resampling for the Play Console's required 1280 x 720 output.
+# Center-crop the generated artwork to the feature graphic ratio, then use high-quality
+# resampling for the Play Console's required 1024 x 500 output.
 $source = [System.Drawing.Image]::FromFile($featureSourceCopy)
-$feature = New-Canvas 1280 720
+$feature = New-Canvas 1024 500
 $featureGraphics = [System.Drawing.Graphics]::FromImage($feature)
 try {
     $featureGraphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
@@ -73,7 +75,7 @@ try {
     $featureGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $featureGraphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
 
-    $targetAspect = 16.0 / 9.0
+    $targetAspect = 1024.0 / 500.0
     $sourceAspect = $source.Width / [double]$source.Height
     if ($sourceAspect -gt $targetAspect) {
         $cropHeight = [double]$source.Height
@@ -87,7 +89,7 @@ try {
         $cropY = ($source.Height - $cropHeight) / 2.0
     }
 
-    $destinationRectangle = [System.Drawing.RectangleF]::new(0, 0, 1280, 720)
+    $destinationRectangle = [System.Drawing.RectangleF]::new(0, 0, 1024, 500)
     $sourceRectangle = [System.Drawing.RectangleF]::new($cropX, $cropY, $cropWidth, $cropHeight)
     $featureGraphics.DrawImage(
         $source,

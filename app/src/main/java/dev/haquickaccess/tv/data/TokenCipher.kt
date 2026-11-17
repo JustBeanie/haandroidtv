@@ -13,6 +13,7 @@ import javax.inject.Singleton
 
 @Singleton
 class TokenCipher @Inject constructor() {
+    @Synchronized
     fun encrypt(plainText: String): String {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
@@ -25,6 +26,7 @@ class TokenCipher @Inject constructor() {
         return Base64.encodeToString(output, Base64.NO_WRAP)
     }
 
+    @Synchronized
     fun decrypt(envelope: String): String {
         val input = ByteBuffer.wrap(Base64.decode(envelope, Base64.NO_WRAP))
         val ivLength = input.get().toInt() and 0xff
@@ -36,6 +38,7 @@ class TokenCipher @Inject constructor() {
         return cipher.doFinal(encrypted).toString(Charsets.UTF_8)
     }
 
+    @Synchronized
     fun clear() {
         keyStore().deleteEntry(KEY_ALIAS)
     }

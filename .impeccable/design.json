@@ -1,0 +1,347 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-17T03:29:55.019Z",
+  "title": "Design System: HA Quick Access",
+  "extensions": {
+    "colorMeta": {
+      "background": {
+        "role": "neutral",
+        "displayName": "Night Navy",
+        "tonalRamp": [
+          "oklch(15.00% 0.0269 265.83)",
+          "oklch(26.43% 0.0269 265.83)",
+          "oklch(37.86% 0.0269 265.83)",
+          "oklch(49.29% 0.0269 265.83)",
+          "oklch(60.71% 0.0269 265.83)",
+          "oklch(72.14% 0.0269 265.83)",
+          "oklch(83.57% 0.0269 265.83)",
+          "oklch(95.00% 0.0269 265.83)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Control Navy",
+        "tonalRamp": [
+          "oklch(15.00% 0.0360 262.48)",
+          "oklch(26.43% 0.0360 262.48)",
+          "oklch(37.86% 0.0360 262.48)",
+          "oklch(49.29% 0.0360 262.48)",
+          "oklch(60.71% 0.0360 262.48)",
+          "oklch(72.14% 0.0360 262.48)",
+          "oklch(83.57% 0.0360 262.48)",
+          "oklch(95.00% 0.0360 262.48)"
+        ]
+      },
+      "surface-focused": {
+        "role": "neutral",
+        "displayName": "Focus Navy",
+        "tonalRamp": [
+          "oklch(15.00% 0.0507 260.20)",
+          "oklch(26.43% 0.0507 260.20)",
+          "oklch(37.86% 0.0507 260.20)",
+          "oklch(49.29% 0.0507 260.20)",
+          "oklch(60.71% 0.0507 260.20)",
+          "oklch(72.14% 0.0507 260.20)",
+          "oklch(83.57% 0.0507 260.20)",
+          "oklch(95.00% 0.0507 260.20)"
+        ]
+      },
+      "surface-active": {
+        "role": "neutral",
+        "displayName": "Active Charcoal",
+        "tonalRamp": [
+          "oklch(15.00% 0.0064 78.20)",
+          "oklch(26.43% 0.0064 78.20)",
+          "oklch(37.86% 0.0064 78.20)",
+          "oklch(49.29% 0.0064 78.20)",
+          "oklch(60.71% 0.0064 78.20)",
+          "oklch(72.14% 0.0064 78.20)",
+          "oklch(83.57% 0.0064 78.20)",
+          "oklch(95.00% 0.0064 78.20)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Slate Border",
+        "tonalRamp": [
+          "oklch(15.00% 0.0545 260.05)",
+          "oklch(26.43% 0.0545 260.05)",
+          "oklch(37.86% 0.0545 260.05)",
+          "oklch(49.29% 0.0545 260.05)",
+          "oklch(60.71% 0.0545 260.05)",
+          "oklch(72.14% 0.0545 260.05)",
+          "oklch(83.57% 0.0545 260.05)",
+          "oklch(95.00% 0.0545 260.05)"
+        ]
+      },
+      "focus": {
+        "role": "primary",
+        "displayName": "Focus Cyan",
+        "tonalRamp": [
+          "oklch(15.00% 0.1236 223.87)",
+          "oklch(26.43% 0.1236 223.87)",
+          "oklch(37.86% 0.1236 223.87)",
+          "oklch(49.29% 0.1236 223.87)",
+          "oklch(60.71% 0.1236 223.87)",
+          "oklch(72.14% 0.1236 223.87)",
+          "oklch(83.57% 0.1236 223.87)",
+          "oklch(95.00% 0.1236 223.87)"
+        ]
+      },
+      "cyan": {
+        "role": "primary",
+        "displayName": "Soft Cyan",
+        "tonalRamp": [
+          "oklch(15.00% 0.0809 220.00)",
+          "oklch(26.43% 0.0809 220.00)",
+          "oklch(37.86% 0.0809 220.00)",
+          "oklch(49.29% 0.0809 220.00)",
+          "oklch(60.71% 0.0809 220.00)",
+          "oklch(72.14% 0.0809 220.00)",
+          "oklch(83.57% 0.0809 220.00)",
+          "oklch(95.00% 0.0809 220.00)"
+        ]
+      },
+      "active": {
+        "role": "secondary",
+        "displayName": "Active Amber",
+        "tonalRamp": [
+          "oklch(15.00% 0.1741 64.05)",
+          "oklch(26.43% 0.1741 64.05)",
+          "oklch(37.86% 0.1741 64.05)",
+          "oklch(49.29% 0.1741 64.05)",
+          "oklch(60.71% 0.1741 64.05)",
+          "oklch(72.14% 0.1741 64.05)",
+          "oklch(83.57% 0.1741 64.05)",
+          "oklch(95.00% 0.1741 64.05)"
+        ]
+      },
+      "connected": {
+        "role": "tertiary",
+        "displayName": "Connected Green",
+        "tonalRamp": [
+          "oklch(15.00% 0.1624 144.21)",
+          "oklch(26.43% 0.1624 144.21)",
+          "oklch(37.86% 0.1624 144.21)",
+          "oklch(49.29% 0.1624 144.21)",
+          "oklch(60.71% 0.1624 144.21)",
+          "oklch(72.14% 0.1624 144.21)",
+          "oklch(83.57% 0.1624 144.21)",
+          "oklch(95.00% 0.1624 144.21)"
+        ]
+      },
+      "error": {
+        "role": "tertiary",
+        "displayName": "Attention Red",
+        "tonalRamp": [
+          "oklch(15.00% 0.1804 17.61)",
+          "oklch(26.43% 0.1804 17.61)",
+          "oklch(37.86% 0.1804 17.61)",
+          "oklch(49.29% 0.1804 17.61)",
+          "oklch(60.71% 0.1804 17.61)",
+          "oklch(72.14% 0.1804 17.61)",
+          "oklch(83.57% 0.1804 17.61)",
+          "oklch(95.00% 0.1804 17.61)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Near White",
+        "tonalRamp": [
+          "oklch(15.00% 0.0095 273.36)",
+          "oklch(26.43% 0.0095 273.36)",
+          "oklch(37.86% 0.0095 273.36)",
+          "oklch(49.29% 0.0095 273.36)",
+          "oklch(60.71% 0.0095 273.36)",
+          "oklch(72.14% 0.0095 273.36)",
+          "oklch(83.57% 0.0095 273.36)",
+          "oklch(95.00% 0.0095 273.36)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Blue Gray",
+        "tonalRamp": [
+          "oklch(15.00% 0.0354 257.86)",
+          "oklch(26.43% 0.0354 257.86)",
+          "oklch(37.86% 0.0354 257.86)",
+          "oklch(49.29% 0.0354 257.86)",
+          "oklch(60.71% 0.0354 257.86)",
+          "oklch(72.14% 0.0354 257.86)",
+          "oklch(83.57% 0.0354 257.86)",
+          "oklch(95.00% 0.0354 257.86)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Native Android system sans-serif. Preview HTML uses system-ui as an illustration only; it is not the Compose runtime. All preview CSS lengths represent native dp/sp at a nominal one-to-one scale."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Main destination headings."
+      },
+      "dialog-title": {
+        "displayName": "Dialog title",
+        "purpose": "Common entity-detail heading; not a universal override for every modal."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Tile names, list-row titles, and navigation."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Fields, setup explanation, and detail text."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Button labels, state values, and supporting screen copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, row descriptions, connection status, and context."
+      },
+      "compact-hint": {
+        "displayName": "Compact hint",
+        "purpose": "Focused action hint in the compact Favorites header."
+      }
+    },
+    "shadows": [
+      {
+        "name": "dashboard-card",
+        "value": "0dp",
+        "purpose": "Explicitly zero card shadow elevation; depth is tonal. Other native Material defaults are not replaced by this token."
+      }
+    ],
+    "motion": [
+      {
+        "name": "dashboard-card-focus",
+        "value": "scale 1 → 1.025; tween 150ms",
+        "purpose": "Native animateFloatAsState with tween's default FastOutSlowIn easing."
+      },
+      {
+        "name": "shared-surface-focus",
+        "value": "scale 1 → 1.03",
+        "purpose": "TvFocusSurface and TvButton; duration and easing remain native Material defaults."
+      },
+      {
+        "name": "list-row-focus",
+        "value": "scale 1 → 1.015",
+        "purpose": "TvListRow override; duration and easing remain native Material defaults."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-content-height",
+        "value": "available content height < 360dp"
+      },
+      {
+        "name": "four-grid-columns",
+        "value": "available grid width >= 780dp"
+      },
+      {
+        "name": "five-grid-columns",
+        "value": "available grid width >= 1100dp"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Illustrative HTML translation of native Compose; CSS pixels stand in for dp/sp at preview scale, not physical TV pixels. Native pill geometry and default text metrics are approximate. Primary action; hover demonstrates the native focus appearance.",
+      "html": "<button class=\"ds-button\">Apply</button>",
+      "css": ".ds-button{font:16px system-ui,sans-serif;min-height:48px;padding:12px 20px;border:0;border-radius:999px;background:#59D5FF;color:#080D19}.ds-button:hover,.ds-button:focus-visible{background:#F6F8FF;color:#080D19;outline:0;transform:scale(1.03)}.ds-button:active{transform:scale(1)}"
+    },
+    {
+      "name": "Secondary button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Illustrative HTML translation of native Compose; CSS pixels stand in for dp/sp at preview scale, not physical TV pixels. Native pill geometry and default text metrics are approximate. Secondary action and unselected filter.",
+      "html": "<button class=\"ds-button\">Cancel</button>",
+      "css": ".ds-button{font:16px system-ui,sans-serif;min-height:48px;padding:12px 20px;border:0;border-radius:999px;background:#121B2C;color:#F6F8FF}.ds-button:hover,.ds-button:focus-visible{background:#F6F8FF;color:#080D19;outline:0;transform:scale(1.03)}.ds-button:active{transform:scale(1)}"
+    },
+    {
+      "name": "Destructive button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "Illustrative HTML translation of native Compose; CSS pixels stand in for dp/sp at preview scale, not physical TV pixels. Native pill geometry and default text metrics are approximate. Destructive action uses translucent red at rest.",
+      "html": "<button class=\"ds-button\">Forget connection</button>",
+      "css": ".ds-button{font:16px system-ui,sans-serif;min-height:48px;padding:12px 20px;border:0;border-radius:999px;background:rgba(255,107,120,.2);color:#F6F8FF}.ds-button:hover,.ds-button:focus-visible{background:#F6F8FF;color:#080D19;outline:0;transform:scale(1.03)}.ds-button:active{transform:scale(1)}"
+    },
+    {
+      "name": "Text field",
+      "kind": "input",
+      "refersTo": "text-field",
+      "description": "Illustrative HTML translation of native Compose; CSS pixels stand in for dp/sp at preview scale, not physical TV pixels. Native pill geometry and default text metrics are approximate. Single-line field with a separate label and soft cyan caret.",
+      "html": "<label class=\"ds-field\">Server address<input class=\"ds-field-input\" value=\"https://homeassistant.local:8123\" aria-label=\"Server address\"></label>",
+      "css": ".ds-field{display:grid;gap:6px;width:min(100%,520px);font:14px system-ui,sans-serif;color:#AFBED4}.ds-field-input{font:17px system-ui,sans-serif;min-height:48px;padding:14px;background:#121B2C;color:#F6F8FF;caret-color:#9CE7FF;border:1px solid #263753;border-radius:10px}.ds-field-input:hover,.ds-field-input:focus-visible{outline:2px solid #59D5FF;outline-offset:-2px}.ds-field-input::selection{background:#59D5FF;color:#080D19}"
+    },
+    {
+      "name": "TV navigation",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "Illustrative HTML translation of native Compose; CSS pixels stand in for dp/sp at preview scale, not physical TV pixels. Native pill geometry and default text metrics are approximate. Selected destination and live connection label; hover represents remote focus.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Destinations\"><button class=\"ds-tab ds-tab-selected\" aria-current=\"page\">Favorites</button><button class=\"ds-tab\">All controls</button><button class=\"ds-tab\">Settings</button><span class=\"ds-status\">Connected</span></nav>",
+      "css": ".ds-nav{display:flex;align-items:center;gap:16px;padding:8px;background:#080D19;color:#F6F8FF}.ds-tab{border:0;border-radius:999px;padding:12px 20px;font:18px system-ui,sans-serif;background:transparent;color:#AFBED4;white-space:nowrap}.ds-tab-selected{background:#1A2942;color:#F6F8FF}.ds-tab:hover,.ds-tab:focus-visible{background:#F6F8FF;color:#080D19;outline:0}.ds-tab:active{background:#59D5FF;color:#080D19}.ds-status{margin-left:auto;color:#4CAF50;font:14px system-ui,sans-serif;white-space:nowrap}"
+    },
+    {
+      "name": "Active favorite card",
+      "kind": "card",
+      "refersTo": "control-card",
+      "description": "Illustrative HTML translation of native Compose; CSS pixels stand in for dp/sp at preview scale, not physical TV pixels. Native pill geometry and default text metrics are approximate. Amber shows device activity; cyan focus remains independent. The fan SVG is copied from the bundled native vector.",
+      "html": "<button class=\"ds-card\"><span class=\"ds-card-top\"><span class=\"ds-card-icon-disc\"><svg class=\"ds-card-icon\" viewBox=\"0 0 960 960\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M424,880Q373,880 346.5,849.5Q320,819 320,780Q320,754 331.5,729.5Q343,705 367,689Q389,675 402.5,653Q416,631 421,606Q415,603 409,600Q403,597 398,593L306,626Q289,632 273,636Q257,640 240,640Q177,640 128.5,585Q80,530 80,424Q80,373 110.5,346.5Q141,320 179,320Q205,320 230,331.5Q255,343 271,367Q285,389 307,402.5Q329,416 354,421Q357,415 360,409Q363,403 367,398L334,306Q328,289 324,273Q320,257 320,241Q320,177 375,128.5Q430,80 536,80Q587,80 613.5,110.5Q640,141 640,179Q640,205 628.5,230Q617,255 593,271Q571,285 557.5,307Q544,329 539,354Q545,357 551,360Q557,363 562,367L654,333Q671,327 686.5,323.5Q702,320 719,320Q800,320 840,387Q880,454 880,536Q880,587 848,613.5Q816,640 777,640Q752,640 728.5,628.5Q705,617 689,593Q675,571 653,557.5Q631,544 606,539Q603,545 600,551Q597,557 593,562L626,654Q632,670 636,684.5Q640,699 640,715Q641,780 586,830Q531,880 424,880ZM480,540Q505,540 522.5,522.5Q540,505 540,480Q540,455 522.5,437.5Q505,420 480,420Q455,420 437.5,437.5Q420,455 420,480Q420,505 437.5,522.5Q455,540 480,540ZM434,348Q440,346 446.5,344.5Q453,343 459,342Q467,300 489.5,264Q512,228 549,204Q554,200 557,194Q560,188 560,179Q560,171 554,165.5Q548,160 536,160Q498,160 450,176.5Q402,193 400,241Q400,250 402.5,258Q405,266 407,273L434,348ZM240,560Q254,560 273,553L348,526Q346,520 344.5,513.5Q343,507 342,501Q300,493 264,470.5Q228,448 204,411Q200,406 193.5,403Q187,400 179,400Q170,400 165,406Q160,412 160,424Q160,478 180.5,519Q201,560 240,560ZM424,800Q471,800 516.5,781Q562,762 560,715Q560,707 557.5,700Q555,693 553,687L526,612Q520,614 513.5,615.5Q507,617 501,618Q493,660 470.5,696Q448,732 411,756Q406,760 402.5,766.5Q399,773 400,780Q401,788 406,794Q411,800 424,800ZM777,560Q786,560 793,555Q800,550 800,536Q800,498 784,449.5Q768,401 719,400Q710,400 702,402Q694,404 687,406L612,434Q614,440 615.5,446.5Q617,453 618,459Q660,467 696,489.5Q732,512 756,549Q759,554 765,557Q771,560 777,560ZM618,459Q618,459 618,459Q618,459 618,459Q618,459 618,459Q618,459 618,459Q618,459 618,459Q618,459 618,459L618,459Q618,459 618,459Q618,459 618,459Q618,459 618,459Q618,459 618,459Q618,459 618,459Q618,459 618,459ZM459,342L459,342Q459,342 459,342Q459,342 459,342Q459,342 459,342Q459,342 459,342Q459,342 459,342Q459,342 459,342Q459,342 459,342Q459,342 459,342Q459,342 459,342Q459,342 459,342Q459,342 459,342Q459,342 459,342ZM342,501Q342,501 342,501Q342,501 342,501Q342,501 342,501Q342,501 342,501Q342,501 342,501Q342,501 342,501Q342,501 342,501Q342,501 342,501Q342,501 342,501Q342,501 342,501L342,501Q342,501 342,501Q342,501 342,501ZM501,618Q501,618 501,618Q501,618 501,618Q501,618 501,618Q501,618 501,618Q501,618 501,618Q501,618 501,618Q501,618 501,618Q501,618 501,618L501,618Q501,618 501,618Q501,618 501,618Q501,618 501,618Q501,618 501,618Z\"/></svg></span><span class=\"ds-card-state\">40%</span></span><span class=\"ds-card-name\">Ceiling Fan</span></button>",
+      "css": ".ds-card{display:flex;flex-direction:column;justify-content:space-between;text-align:left;width:240px;min-height:142px;padding:18px;background:#211F1C;color:#F6F8FF;border:1px solid rgba(255,152,0,.72);border-radius:12px;transition:transform 150ms cubic-bezier(.4,0,.2,1)}.ds-card-top{display:flex;align-items:flex-start;gap:10px}.ds-card-icon-disc{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:rgba(255,152,0,.18);color:#FF9800}.ds-card-icon{width:22px;height:22px}.ds-card-state{font:16px system-ui,sans-serif;color:#FF9800}.ds-card-name{font:18px system-ui,sans-serif}.ds-card:hover,.ds-card:focus-visible{background:#1A2942;outline:3px solid #59D5FF;outline-offset:-3px;transform:scale(1.025)}.ds-card:active{transform:scale(1)}"
+    },
+    {
+      "name": "Settings and discovery row",
+      "kind": "card",
+      "refersTo": "list-row",
+      "description": "Illustrative HTML translation of native Compose; CSS pixels stand in for dp/sp at preview scale, not physical TV pixels. Native pill geometry and default text metrics are approximate. Shared title/subtitle row with a vector chevron.",
+      "html": "<button class=\"ds-row\"><span class=\"ds-row-copy\"><span class=\"ds-row-title\">Connection</span><span class=\"ds-row-subtitle\">Home Assistant server</span></span><svg class=\"ds-row-chevron\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z\"/></svg></button>",
+      "css": ".ds-row{display:flex;align-items:center;gap:20px;min-height:82px;width:100%;padding:17px 20px;text-align:left;background:#121B2C;color:#F6F8FF;border:1px solid #263753;border-radius:18px}.ds-row-copy{display:grid;gap:4px;flex:1}.ds-row-title{font:18px system-ui,sans-serif}.ds-row-subtitle{font:14px system-ui,sans-serif;color:#AFBED4}.ds-row-chevron{width:24px;height:24px;color:#AFBED4}.ds-row:hover,.ds-row:focus-visible{background:#1A2942;outline:2px solid #59D5FF;outline-offset:-2px;transform:scale(1.015)}.ds-row:active{transform:scale(1)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Immediate household controls from a TV remote",
+    "overview": "Native Android TV Material surfaces make household controls legible from a sofa and predictable with a directional pad. Dark navy grounds the interface; restrained tonal layers separate controls, cyan identifies focus, and amber identifies active device values.\n\nThe system favors familiar tabs, pill buttons, rounded cards, and scrollable dialogs. Android system typography is intentional. This is a native Compose app, with no website font or browser layout requirement.",
+    "keyCharacteristics": [
+      "Clear remote focus, persistent context, and TV-safe edges.",
+      "Tonal surfaces with semantic color and actual device state.",
+      "Adaptive density that preserves readable text and reachable actions."
+    ],
+    "rules": [
+      {
+        "name": "The Focus Is Separate Rule",
+        "body": "Focus identifies the current remote target; amber identifies device activity. A focused active card retains its amber value while receiving the cyan focus outline.",
+        "section": "colors"
+      },
+      {
+        "name": "The Truthful State Rule",
+        "body": "Connection and command states are written in text. Cached values read as last known; pending and failed actions keep their own feedback instead of implying success.",
+        "section": "colors"
+      },
+      {
+        "name": "The Fit Before Density Rule",
+        "body": "Preserve safe edges, font scaling, and reachable controls; reduce visible rows and use scrolling when the viewport cannot hold the full composition.",
+        "section": "layout"
+      }
+    ],
+    "dos": [
+      "**Do** use native TV Material controls and the Android system typeface.",
+      "**Do** preserve TV-safe margins, font scaling, and visible remote focus.",
+      "**Do** distinguish device activity, remote focus, connection state, and command feedback.",
+      "**Do** retain a focused action hint in compact Favorites layouts.",
+      "**Do** reuse semantic vector icons and the shared button, field, row, and dialog components."
+    ],
+    "donts": [
+      "**Don't** use cached states as evidence that controls are live.",
+      "**Don't** force two card rows when the available height cannot fit them.",
+      "**Don't** remove the current remote target while a command is pending.",
+      "**Don't** treat illustrative HTML previews or synthesized tonal ramps as native runtime tokens."
+    ]
+  }
+}
+
