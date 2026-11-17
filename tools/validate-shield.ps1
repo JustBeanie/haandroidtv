@@ -266,6 +266,9 @@ function Measure-Launches {
             Invoke-Adb -Arguments @("shell", "am", "force-stop", $PackageName)
         } else {
             Invoke-Adb -Arguments @("shell", "input", "keyevent", "KEYCODE_HOME")
+            # Let the Home transition finish before measuring the return. On a
+            # Shield, an immediate start can report the previous launch's time.
+            Start-Sleep -Milliseconds 1000
         }
         $launch = Invoke-Adb -Arguments @("shell", "am", "start-activity", "-W", "-n", $activityName)
         $totalTime = $launch | Select-String -Pattern "^TotalTime:\s+(\d+)" | ForEach-Object { [int]$_.Matches[0].Groups[1].Value }

@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.haquickaccess.tv.data.ConnectionStatus
@@ -35,6 +36,8 @@ import dev.haquickaccess.tv.data.ConnectionStatus
 internal fun SetupScreen(state: DashboardUiState, onEvent: DashboardActions) {
     var tokenStep by rememberSaveable { mutableStateOf(false) }
     var addressError by remember { mutableStateOf<String?>(null) }
+    val continueFocusRequester = remember { FocusRequester() }
+    val editAddressFocusRequester = remember { FocusRequester() }
     BackHandler(tokenStep && !state.isSavingConnection) { tokenStep = false }
     Column(
         modifier = Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(vertical = 12.dp),
@@ -49,22 +52,24 @@ internal fun SetupScreen(state: DashboardUiState, onEvent: DashboardActions) {
             if (!tokenStep) {
                 HaTextField(stringResource(R.string.server_url), state.setupBaseUrl,
                     { addressError = null; onEvent.updateSetupBaseUrl(it) }, false,
-                    placeholder = "https://homeassistant.local:8123", requestInitialFocus = true)
+                    placeholder = "https://homeassistant.local:8123", requestInitialFocus = true,
+                    downFocusRequester = continueFocusRequester)
                 (addressError ?: state.setupErrorMessage)?.let { Spacer(Modifier.height(8.dp)); HaText(it, 16.sp, HaRed) }
                 Spacer(Modifier.height(20.dp))
                 HaButton(stringResource(R.string.continue_setup), {
                     val result = UrlValidator.normalize(state.setupBaseUrl)
                     if (result.isSuccess) tokenStep = true else addressError = result.exceptionOrNull()?.message
-                }, primary = true)
+                }, primary = true, focusRequester = continueFocusRequester)
             } else {
                 HaText(state.setupBaseUrl, 16.sp, HaMuted)
                 Spacer(Modifier.height(16.dp))
                 HaTextField(stringResource(R.string.token_label), state.setupToken, onEvent::updateSetupToken,
-                    true, requestInitialFocus = true)
+                    true, requestInitialFocus = true, downFocusRequester = editAddressFocusRequester)
                 state.setupErrorMessage?.let { Spacer(Modifier.height(10.dp)); HaText(it, 16.sp, HaRed) }
                 Spacer(Modifier.height(20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    HaButton(stringResource(R.string.edit_address), { tokenStep = false }, enabled = !state.isSavingConnection)
+                    HaButton(stringResource(R.string.edit_address), { tokenStep = false }, enabled = !state.isSavingConnection,
+                        focusRequester = editAddressFocusRequester)
                     HaButton(stringResource(if (state.isSavingConnection) R.string.verifying else R.string.validate_save),
                         onEvent::saveConnection, primary = true, enabled = !state.isSavingConnection)
                 }

@@ -150,7 +150,7 @@ class HomeAssistantWebSocket private constructor(
         override fun onMessage(webSocket: WebSocket, text: String) {
             if (text.length > MAX_MESSAGE_LENGTH) {
                 synchronized(lock) {
-                    finish(session, IllegalArgumentException("Message too large"), "Home Assistant sent an oversized message")
+                    finish(session, IllegalArgumentException("Message too large"), "Home Assistant sent an oversized message", retryable = false)
                 }
                 return
             }
@@ -274,7 +274,10 @@ class HomeAssistantWebSocket private constructor(
 
     private companion object {
         const val CONNECTION_TIMEOUT_MS = 10_000L
-        const val MAX_MESSAGE_LENGTH = 1_048_576
+        // get_states includes every domain, even those this client discards. A
+        // real 3,500-entity installation already exceeds 1 MiB. Keep parsing
+        // bounded while allowing room for larger homes and attribute payloads.
+        const val MAX_MESSAGE_LENGTH = 8 * 1_048_576
         const val MAX_PENDING_REQUESTS = 64
         const val MAX_INITIAL_CHANGES = 4096
     }

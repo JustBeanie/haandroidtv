@@ -61,6 +61,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 
 @RunWith(AndroidJUnit4::class)
 class HaQuickAccessAppTest {
@@ -103,8 +105,11 @@ class HaQuickAccessAppTest {
     }
 
     @Test
-    fun long_press_opens_staged_dimmer_details_without_toggling() {
-        val lamp = HaEntity("light.den", "on", JsonObject(mapOf("brightness" to JsonPrimitive(128))))
+    fun long_press_opens_off_dimmer_details_without_toggling() {
+        val lamp = HaEntity("light.den", "off", JsonObject(mapOf(
+            "brightness" to JsonNull,
+            "supported_color_modes" to JsonArray(listOf(JsonPrimitive("brightness"))),
+        )))
         val settings = UiSettingsStore(
             AppSettings(
                 baseUrl = "https://ha.example",
@@ -120,8 +125,29 @@ class HaQuickAccessAppTest {
             HaQuickAccessApp(state, viewModel)
         }
 
-        composeRule.onNodeWithContentDescription("den, 50%").performTouchInput { longClick() }
+        composeRule.onNodeWithContentDescription("den, Off").performTouchInput { longClick() }
         composeRule.onNodeWithText("Brightness: 50%").awaitDisplayed().assertIsDisplayed()
+        assertTrue(session.actions.isEmpty())
+    }
+
+    @Test
+    fun failed_initial_connection_keeps_saved_favorites_and_offers_diagnostics() {
+        val settings = UiSettingsStore(AppSettings(
+            baseUrl = "https://ha.example",
+            tokenEnvelope = "encrypted",
+            tiles = listOf(TileConfiguration("light.den", 0)),
+        ))
+        val session = UiSession(emptyMap(), initialStatesLoaded = false,
+            connectionStatus = ConnectionStatus.Failed("Connection lost"))
+        val viewModel = DashboardViewModel(settings, session, UiChannelGateway(), Dispatchers.IO)
+        composeRule.setContent {
+            val state by viewModel.uiState.collectAsState()
+            HaQuickAccessApp(state, viewModel)
+        }
+        composeRule.onNodeWithText("Unable to load your controls").awaitDisplayed().assertIsDisplayed()
+        composeRule.onNodeWithText("Diagnostics").awaitFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        composeRule.onNodeWithText("Connection problem: Connection lost").awaitDisplayed().assertIsDisplayed()
+        assertEquals(listOf(TileConfiguration("light.den", 0)), settings.settings.value.tiles)
         assertTrue(session.actions.isEmpty())
     }
 
@@ -222,6 +248,37 @@ class HaQuickAccessAppTest {
         composeRule.onNodeWithText("Tile 1 of 2").assertIsDisplayed()
         composeRule.onAllNodesWithText("Move")[0].performSemanticsAction(SemanticsActions.OnClick) { it() }
         composeRule.onNodeWithText("Earlier").assertIsNotEnabled()
+    }
+
+    @Test
+    fun launcher_focus_request_overrides_saved_content_focus_from_navigation() {
+        val den = HaEntity("light.den", "off")
+        val reading = HaEntity("switch.reading", "off")
+        val settings = UiSettingsStore(AppSettings(
+            baseUrl = "https://ha.example",
+            tokenEnvelope = "encrypted",
+            tiles = listOf(TileConfiguration(den.entityId, 0), TileConfiguration(reading.entityId, 1)),
+            lastFocusedEntityId = den.entityId,
+        ))
+        val session = UiSession(mapOf(den.entityId to den, reading.entityId to reading))
+        val viewModel = DashboardViewModel(settings, session, UiChannelGateway(), Dispatchers.IO)
+        composeRule.setContent {
+            val state by viewModel.uiState.collectAsState()
+            HaQuickAccessApp(state, viewModel)
+        }
+
+        composeRule.onNodeWithContentDescription("den, Off").awaitFocused().performKeyInput {
+            pressKey(Key.DirectionUp)
+        }
+        composeRule.onNodeWithContentDescription("Favorites").awaitFocused()
+        composeRule.runOnIdle { viewModel.handleLaunchRequest(reading.entityId, "focus") }
+        composeRule.onNodeWithContentDescription("reading, Off").awaitFocused().performKeyInput {
+            pressKey(Key.DirectionUp)
+        }
+        composeRule.onNodeWithContentDescription("Favorites").awaitFocused()
+        composeRule.runOnIdle { viewModel.handleLaunchRequest(den.entityId, "focus") }
+        composeRule.onNodeWithContentDescription("den, Off").awaitFocused().assertIsFocused()
+        assertTrue(session.actions.isEmpty())
     }
 
     @Test
@@ -351,6 +408,31 @@ class HaQuickAccessAppTest {
         execution.complete(Result.success(Unit))
         composeRule.onNodeWithContentDescription("den, Updated ✓").awaitFocused().assertIsFocused()
         assertExactlyOneFocusedNode()
+    }
+
+    @Test
+    fun setup_dpad_reaches_actions_from_both_text_fields() {
+        val settings = UiSettingsStore(AppSettings())
+        val viewModel = DashboardViewModel(settings, UiSession(emptyMap()), UiChannelGateway(), Dispatchers.IO)
+        composeRule.setContent {
+            val state by viewModel.uiState.collectAsState()
+            HaQuickAccessApp(state, viewModel)
+        }
+
+        composeRule.onNodeWithContentDescription("Home Assistant URL").awaitFocused()
+            .performTextInput("https://ha.example")
+        composeRule.onNodeWithContentDescription("Home Assistant URL").performKeyInput {
+            pressKey(Key.DirectionDown)
+        }
+        composeRule.onNodeWithText("Continue").awaitFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        composeRule.onNodeWithContentDescription("Long-lived access token").awaitFocused().performTextInput("token")
+        composeRule.onNodeWithContentDescription("Long-lived access token").performKeyInput {
+            pressKey(Key.DirectionDown)
+        }
+        composeRule.onNodeWithText("Edit address").awaitFocused().performKeyInput { pressKey(Key.DirectionRight) }
+        composeRule.onNodeWithText("Validate and save").awaitFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        composeRule.waitUntil(5_000) { settings.settings.value.baseUrl == "https://ha.example" }
+        composeRule.onNodeWithText("Choose your quick controls").awaitDisplayed().assertIsDisplayed()
     }
 
     @Test

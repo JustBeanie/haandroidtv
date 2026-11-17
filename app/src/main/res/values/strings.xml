@@ -46,4 +46,7 @@
     <string name="privacy_description">How HA Quick Access handles connection data</string>
     <string name="back">Back</string>
     <string name="loading">Loading Home Assistant…</string>
+    <string name="saved_controls_unavailable">Unable to load your controls</string>
+    <string name="saved_controls_connecting">Connecting to Home Assistant</string>
+    <string name="saved_controls_help">Your favorites are saved. Open Diagnostics to check the connection.</string>
 </resources>
