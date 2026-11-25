@@ -102,6 +102,9 @@ protocol/validation, domain, and view-model logic. Android Keystore, DataStore,
 TV Provider, focus, and Compose behavior are verified by instrumentation tests.
 Pull requests run lint, unit tests, coverage verification, an Android TV
 emulator smoke test, and a debug APK build in GitHub Actions.
+The Forgejo mirror runs `.forgejo/workflows/verify.yml` on every synced branch:
+the same lint, unit test, coverage, build, and release-artifact checks, without
+the emulator jobs (the lab runner has no KVM).
 
 Before distributing a release APK, run the physical-device checklist in
 [Shield Pro release validation](docs/shield-pro-validation.md).

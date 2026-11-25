@@ -1,0 +1,83 @@
+# Forgejo Actions for the git.beanie.zip pull mirror of this repository.
+#
+# Forgejo reads .forgejo/workflows instead of .github/workflows when this
+# directory exists, so the GitHub workflows (emulator jobs, third-party
+# actions) never queue on the lab runner. The lab runner has no KVM, no
+# Node.js, and runs one job at a time, so this workflow covers the checks
+# that need neither an emulator nor JavaScript actions: lint, unit tests,
+# coverage, debug and release builds, and release artifact checks.
+name: Verify (Forgejo)
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+env:
+  # CVE-2026-114938: disable HotSpot Base64 intrinsics for all build JVMs.
+  JAVA_TOOL_OPTIONS: '-XX:-UseBASE64Intrinsics'
+
+jobs:
+  unit-and-lint:
+    runs-on: lab-linux
+    timeout-minutes: 55
+    container:
+      # JDK, Android SDK (platform 36, build-tools) and accepted licences.
+      image: ghcr.io/cirruslabs/android-sdk:36@sha256:f9b3ea9ed2b5fc9522adae82c7b4622ab7aa54207ef532c8e615a347dca08f31
+    env:
+      CI_SERVER: ${{ github.server_url }}
+      CI_REPOSITORY: ${{ github.repository }}
+      CI_COMMIT: ${{ github.sha }}
+      CI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PWSH_VERSION: '7.7.0'
+      PWSH_SHA256: 'c89d9c682d2c403dfe726f3df948e359675235a5bd6fab535776de69729ca0cb'
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: '1'
+      GRADLE_OPTS: '-Dorg.gradle.daemon=false'
+    steps:
+      # actions/checkout needs Node.js, which the lab runner does not have.
+      - name: Fetch exact source from local Git
+        run: |
+          set -eu
+          umask 077
+          helper=$(mktemp)
+          trap 'rm -f "$helper"' EXIT
+          printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) echo x-access-token;; *) printf "%s\n" "$CI_TOKEN";; esac' > "$helper"
+          chmod 700 "$helper"
+          export GIT_ASKPASS="$helper" GIT_TERMINAL_PROMPT=0
+          work=$(mktemp -d)
+          printf 'LAB_SOURCE=%s\n' "$work" >> "$GITHUB_ENV"
+          cd "$work"
+          git init -q .
+          git remote add origin "$CI_SERVER/$CI_REPOSITORY.git"
+          git fetch -q --depth=1 origin "$CI_COMMIT"
+          git checkout -q --detach FETCH_HEAD
+          umask 022
+          chmod -R a+rX "$work"
+          chmod +x gradlew
+          git log -1 --format='Building %H: %s'
+
+      - name: Install pinned PowerShell
+        run: |
+          set -eu
+          archive=$(mktemp)
+          curl -fsSL -o "$archive" "https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-linux-x64.tar.gz"
+          echo "${PWSH_SHA256}  ${archive}" | sha256sum -c -
+          mkdir -p /opt/pwsh
+          tar -xzf "$archive" -C /opt/pwsh
+          rm -f "$archive"
+          chmod +x /opt/pwsh/pwsh
+          ln -sf /opt/pwsh/pwsh /usr/local/bin/pwsh
+          pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          java -version
+
+      - name: Self-test Shield validation helper
+        run: cd "$LAB_SOURCE" && pwsh -NoProfile -File ./tools/validate-shield.ps1 -SelfTest
+
+      - name: Lint
+        run: cd "$LAB_SOURCE" && ./gradlew --stacktrace :app:lintDebug :app:lintRelease
+
+      - name: Unit tests, coverage and builds
+        run: cd "$LAB_SOURCE" && ./gradlew --stacktrace testDebugUnitTest koverXmlReportDebug koverVerifyDebug :app:assembleDebug :app:assembleRelease
+
+      - name: Verify TV release artifacts
+        run: cd "$LAB_SOURCE" && pwsh -NoProfile -File ./tools/verify-release-artifacts.ps1 -Artifact app/build/outputs/apk/release/app-release-unsigned.apk
