@@ -37,7 +37,8 @@ jobs:
       CI_SERVER: ${{ github.server_url }}
       CI_REPOSITORY: ${{ github.repository }}
       CI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      INPUT_TAG: ${{ inputs.tag }}
+      # Forgejo leaves `inputs.*` unexpanded in job env; use the event payload.
+      INPUT_TAG: ${{ github.event.inputs.tag }}
       PUSHED_REF: ${{ github.ref }}
       PWSH_VERSION: '7.7.0'
       PWSH_SHA256: 'c89d9c682d2c403dfe726f3df948e359675235a5bd6fab535776de69729ca0cb'
