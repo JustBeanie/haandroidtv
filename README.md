@@ -106,6 +106,14 @@ The Forgejo mirror runs `.forgejo/workflows/verify.yml` on every synced branch:
 the same lint, unit test, coverage, build, and release-artifact checks, without
 the emulator jobs (the lab runner has no KVM).
 
+To cut a release, bump `versionCode` and `versionName` in `app/build.gradle.kts`,
+merge, then push a matching tag (for example `v0.3.2`) to GitHub. When the
+Forgejo mirror syncs the tag, `.forgejo/workflows/release.yml` builds the signed
+APK and Play bundle and uploads them, with a SHA-256 file, to the Forgejo package
+registry under `haandroidtv/<version>`. Start it by hand from the Actions tab to
+rebuild an existing tag. The signing and package secrets it needs are listed at
+the top of that workflow.
+
 Before distributing a release APK, run the physical-device checklist in
 [Shield Pro release validation](docs/shield-pro-validation.md).
 The included `tools/validate-shield.ps1` helper installs an APK, measures cold
