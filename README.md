@@ -1,5 +1,7 @@
 # HA Quick Access
 
+[![cortisol: low](.github/low-cortisol.svg)](CONTRIBUTING.md#using-ai-tools)
+
 HA Quick Access is a native Android TV control surface for Home Assistant. It is
 designed for NVIDIA Shield and other D-pad-first TVs: a responsive grid of large
 Home Assistant-inspired tiles, secure local configuration, and live entity
