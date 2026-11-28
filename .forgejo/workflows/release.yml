@@ -1,0 +1,186 @@
+# Signed release build for the git.beanie.zip pull mirror.
+#
+# Runs when a v* tag arrives from GitHub through the mirror, or by hand from
+# the Actions tab with a tag name. Builds the signed APK and Play bundle,
+# checks the tag matches versionName and the APK is not debug-signed, then
+# uploads both to the Forgejo generic package registry as
+# JustBeanie/haandroidtv/<version>/.
+#
+# Repository Actions secrets (Settings > Actions > Secrets):
+#   RELEASE_KEYSTORE_BASE64  upload keystore (.jks), base64 on one line
+#   RELEASE_STORE_PASSWORD   keystore password
+#   RELEASE_KEY_ALIAS        key alias
+#   RELEASE_KEY_PASSWORD     key password
+#   PACKAGE_TOKEN            Forgejo token with package write access
+name: Release APK
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build, for example v0.3.2'
+        required: true
+
+env:
+  # CVE-2026-114938: disable HotSpot Base64 intrinsics for all build JVMs.
+  JAVA_TOOL_OPTIONS: '-XX:-UseBASE64Intrinsics'
+
+jobs:
+  release:
+    runs-on: lab-linux
+    timeout-minutes: 55
+    container:
+      image: ghcr.io/cirruslabs/android-sdk:36@sha256:f9b3ea9ed2b5fc9522adae82c7b4622ab7aa54207ef532c8e615a347dca08f31
+    env:
+      CI_SERVER: ${{ github.server_url }}
+      CI_REPOSITORY: ${{ github.repository }}
+      CI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Forgejo leaves `inputs.*` unexpanded in job env; use the event payload.
+      INPUT_TAG: ${{ github.event.inputs.tag }}
+      PUSHED_REF: ${{ github.ref }}
+      PWSH_VERSION: '7.7.0'
+      PWSH_SHA256: 'c89d9c682d2c403dfe726f3df948e359675235a5bd6fab535776de69729ca0cb'
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: '1'
+      GRADLE_OPTS: '-Dorg.gradle.daemon=false'
+    steps:
+      # actions/checkout needs Node.js, which the lab runner does not have.
+      - name: Fetch tagged source from local Git
+        run: |
+          set -eu
+          case "$PUSHED_REF" in
+            refs/tags/*) tag="${PUSHED_REF#refs/tags/}" ;;
+            *) tag="$INPUT_TAG" ;;
+          esac
+          case "$tag" in
+            v[0-9]*) ;;
+            *) echo "Not a release tag: '$tag'" >&2; exit 1 ;;
+          esac
+          umask 077
+          helper=$(mktemp)
+          trap 'rm -f "$helper"' EXIT
+          printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) echo x-access-token;; *) printf "%s\n" "$CI_TOKEN";; esac' > "$helper"
+          chmod 700 "$helper"
+          export GIT_ASKPASS="$helper" GIT_TERMINAL_PROMPT=0
+          work=$(mktemp -d)
+          cd "$work"
+          git init -q .
+          git remote add origin "$CI_SERVER/$CI_REPOSITORY.git"
+          git fetch -q --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
+          git checkout -q --detach "refs/tags/$tag"
+          umask 022
+          chmod -R a+rX "$work"
+          chmod +x gradlew
+          version=$(sed -n 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          if [ "v$version" != "$tag" ]; then
+            echo "Tag $tag does not match versionName '$version' in app/build.gradle.kts" >&2
+            exit 1
+          fi
+          {
+            printf 'LAB_SOURCE=%s\n' "$work"
+            printf 'RELEASE_TAG=%s\n' "$tag"
+            printf 'RELEASE_VERSION=%s\n' "$version"
+          } >> "$GITHUB_ENV"
+          git log -1 --format="Releasing $tag ($version) from %H: %s"
+
+      - name: Check release secrets are set
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+        run: |
+          set -eu
+          missing=''
+          for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD PACKAGE_TOKEN; do
+            eval "value=\${$name:-}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "Missing repository Actions secrets:$missing" >&2
+            exit 1
+          fi
+
+      - name: Install pinned PowerShell
+        run: |
+          set -eu
+          archive=$(mktemp)
+          curl -fsSL -o "$archive" "https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-linux-x64.tar.gz"
+          echo "${PWSH_SHA256}  ${archive}" | sha256sum -c -
+          mkdir -p /opt/pwsh
+          tar -xzf "$archive" -C /opt/pwsh
+          rm -f "$archive"
+          chmod +x /opt/pwsh/pwsh
+          ln -sf /opt/pwsh/pwsh /usr/local/bin/pwsh
+
+      - name: Write signing config outside the source tree
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -eu
+          umask 077
+          signing=$(mktemp -d)
+          printf 'SIGNING_DIR=%s\n' "$signing" >> "$GITHUB_ENV"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | tr -d ' \r\n' | base64 -d > "$signing/upload.jks"
+          # Java properties treat backslash as an escape character.
+          esc() { printf '%s' "$1" | sed 's/\\/\\\\/g'; }
+          {
+            printf 'storeFile=%s\n' "$signing/upload.jks"
+            printf 'storePassword=%s\n' "$(esc "$RELEASE_STORE_PASSWORD")"
+            printf 'keyAlias=%s\n' "$(esc "$RELEASE_KEY_ALIAS")"
+            printf 'keyPassword=%s\n' "$(esc "$RELEASE_KEY_PASSWORD")"
+          } > "$LAB_SOURCE/keystore.properties"
+
+      - name: Build signed APK and Play bundle
+        run: cd "$LAB_SOURCE" && ./gradlew --stacktrace testDebugUnitTest :app:assembleRelease :app:bundleRelease
+
+      - name: Remove signing material
+        if: always()
+        run: |
+          rm -rf "${SIGNING_DIR:-/nonexistent}"
+          rm -f "${LAB_SOURCE:-/nonexistent}/keystore.properties"
+
+      - name: Verify signature and release artifacts
+        run: |
+          set -eu
+          cd "$LAB_SOURCE"
+          apk=app/build/outputs/apk/release/app-release.apk
+          aab=app/build/outputs/bundle/release/app-release.aab
+          test -f "$apk" && test -f "$aab"
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner
+          certs=$("$apksigner" verify --verbose --print-certs "$apk")
+          printf '%s\n' "$certs" | grep -E 'Verified using|Signer #1 certificate (DN|SHA-256)'
+          if printf '%s\n' "$certs" | grep -q 'CN=Android Debug'; then
+            echo 'Release APK is signed with the debug key' >&2
+            exit 1
+          fi
+          pwsh -NoProfile -File ./tools/verify-release-artifacts.ps1 -Artifact "$apk"
+          out=$(mktemp -d)
+          printf 'RELEASE_OUT=%s\n' "$out" >> "$GITHUB_ENV"
+          cp "$apk" "$out/haquickaccess-$RELEASE_VERSION.apk"
+          cp "$aab" "$out/haquickaccess-$RELEASE_VERSION.aab"
+          (cd "$out" && sha256sum haquickaccess-* > "haquickaccess-$RELEASE_VERSION.sha256" && cat "haquickaccess-$RELEASE_VERSION.sha256")
+
+      - name: Upload to Forgejo package registry
+        env:
+          PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+        run: |
+          set -eu
+          owner="${CI_REPOSITORY%%/*}"
+          base="$CI_SERVER/api/packages/$owner/generic/haandroidtv/$RELEASE_VERSION"
+          for file in "$RELEASE_OUT"/*; do
+            name=$(basename "$file")
+            # Pass the credential on stdin so it never appears in the process list.
+            code=$(printf 'user = "%s:%s"\n' "$owner" "$PACKAGE_TOKEN" | curl -sS -K - -o /dev/null -w '%{http_code}' --upload-file "$file" "$base/$name")
+            case "$code" in
+              201) echo "Uploaded $base/$name" ;;
+              409) echo "$name already exists for $RELEASE_VERSION; delete that package version to rebuild it." >&2; exit 1 ;;
+              *) echo "Upload of $name failed with HTTP $code" >&2; exit 1 ;;
+            esac
+          done
+          echo "Package: $CI_SERVER/$owner/-/packages/generic/haandroidtv/$RELEASE_VERSION"
